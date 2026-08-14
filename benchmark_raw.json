@@ -1,0 +1,482 @@
+[
+  {
+    "app": "flask_session",
+    "mode": "direct",
+    "cycles": 1,
+    "initial_pass": false,
+    "final_pass": false,
+    "history": [
+      {
+        "cycle": 1,
+        "files": [
+          "app.py",
+          "repository.py",
+          "routes.py",
+          "services.py"
+        ],
+        "evaluation": {
+          "visible": false,
+          "hidden": false,
+          "pass": false,
+          "failure_type": "behavioral",
+          "output": "\n=================================== ERRORS ====================================\n_______ ERROR collecting benchmark/tests/visible/flask_session_test.py ________\nImportError while importing test module 'C:\\Users\\Dr. AR\\web_migration_full_benchmark_v4\\benchmark\\tests\\visible\\flask_session_test.py'.\nHint: make sure your test modules/packages have valid Python names.\nTraceback:\nC:\\Python314\\Lib\\importlib\\__init__.py:88: in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nbenchmark\\tests\\visible\\flask_session_test.py:1: in <module>\n    from common import load_client\nE   ModuleNotFoundError: No module named 'common'\n=========================== short test summary info ===========================\nERROR benchmark/tests/visible/flask_session_test.py\n!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!\n1 error in 0.63s\n\n=================================== ERRORS ====================================\n_______ ERROR collecting benchmark/tests/hidden/flask_session_hidden.py _______\nImportError while importing test module 'C:\\Users\\Dr. AR\\web_migration_full_benchmark_v4\\benchmark\\tests\\hidden\\flask_session_hidden.py'.\nHint: make sure your test modules/packages have valid Python names.\nTraceback:\nC:\\Python314\\Lib\\importlib\\__init__.py:88: in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nbenchmark\\tests\\hidden\\flask_session_hidden.py:1: in <module>\n    from common import load_client\nE   ModuleNotFoundError: No module named 'common'\n=========================== short test summary info ===========================\nERROR benchmark/tests/hidden/flask_session_hidden.py\n!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!\n1 error in 0.27s\n"
+        },
+        "llm": {
+          "text": "=== FILE: app.py ===\n```python\nfrom flask import Flask\nfrom routes import register_routes\n\ndef create_app() -> Flask:\n    \"\"\"Create and configure the Flask application.\"\"\"\n    app = Flask(__name__)\n    # Preserve the legacy secret key for session security\n    app.secret_key = \"legacy-secret\"\n\n    # Register all routes\n    register_routes(app)\n\n    return app\n\n# Expose a module-level app instance for importers\napp = create_app()\n```\n\n=== FILE: routes.py ===\n```python\nfrom flask import Blueprint, request, jsonify, session, redirect\nfrom services import (\n    get_user_by_id,\n    get_products_filtered,\n    login_user,\n    is_admin,\n)\n\nbp = Blueprint(\"main\", __name__)\n\n@bp.get(\"/health\")\ndef health():\n    \"\"\"Health check endpoint.\"\"\"\n    return jsonify({\"status\": \"ok\"})\n\n\n@bp.get(\"/users/<uid>\")\ndef users(uid):\n    \"\"\"Retrieve a user by ID.\"\"\"\n    user = get_user_by_id(uid)\n    if user:\n        return jsonify(user)\n    return jsonify({\"error\": \"user_not_found\"}), 404\n\n\n@bp.get(\"/products\")\ndef products():\n    \"\"\"List products with optional filtering.\"\"\"\n    q = request.args.get(\"q\", \"\").lower().strip()\n    c = request.args.get(\"category\")\n    items = get_products_filtered(q, c)\n    return jsonify({\"count\": len(items), \"items\": items})\n\n\n@bp.post(\"/login\")\ndef login():\n    \"\"\"Authenticate a user and start a session.\"\"\"\n    data = request.get_json(silent=True) or {}\n    user = login_user(data.get(\"user_id\"))\n    if not user:\n        return jsonify({\"error\": \"invalid_credentials\"}), 401\n    session[\"user_id\"] = user[\"id\"]\n    return jsonify({\"message\": \"logged_in\", \"user\": user})\n\n\n@bp.get(\"/me\")\ndef me():\n    \"\"\"Return the current authenticated user.\"\"\"\n    uid = session.get(\"user_id\")\n    if not uid:\n        return jsonify({\"error\": \"not_authenticated\"}), 401\n    user = get_user_by_id(str(uid))\n    if not user:\n        return jsonify({\"error\": \"user_not_found\"}), 404\n    return jsonify(user)\n\n\n@bp.get(\"/admin\")\ndef admin():\n    \"\"\"Admin-only endpoint.\"\"\"\n    uid = session.get(\"user_id\")\n    if not uid:\n        return jsonify({\"error\": \"not_authenticated\"}), 401\n    if not is_admin(uid):\n        return jsonify({\"error\": \"forbidden\"}), 403\n    return jsonify({\"message\": \"admin_ok\"})\n\n\n@bp.get(\"/old-home\")\ndef old_home():\n    \"\"\"Redirect legacy home to health endpoint.\"\"\"\n    return redirect(\"/health\", 302)\n\n\ndef register_routes(app):\n    \"\"\"Register the blueprint with the Flask app.\"\"\"\n    app.register_blueprint(bp)\n```\n\n=== FILE: services.py ===\n```python\nfrom repository import USERS, PRODUCTS\n\n\ndef get_user_by_id(uid: str):\n    \"\"\"Return a user dict or None.\"\"\"\n    return USERS.get(str(uid))\n\n\ndef get_products_filtered(q: str = \"\", category: str | None = None):\n    \"\"\"Filter products by name query and category.\"\"\"\n    xs = PRODUCTS\n    if q:\n        xs = [x for x in xs if q in x[\"name\"].lower()]\n    if category:\n        xs = [x for x in xs if x[\"category\"] == category]\n    return xs\n\n\ndef login_user(user_id):\n    \"\"\"Validate user credentials (legacy: only user_id).\"\"\"\n    if user_id is None:\n        return None\n    return USERS.get(str(user_id))\n\n\ndef is_admin(uid: str):\n    \"\"\"Check if the user has admin role.\"\"\"\n    user = get_user_by_id(uid)\n    return user is not None and user.get(\"role\") == \"admin\"\n```\n\n=== FILE: repository.py ===\n```python\n# In-memory data store mirroring the legacy application\n\nUSERS = {\n    \"1\": {\"id\": 1, \"name\": \"Alice\", \"role\": \"admin\"},\n    \"2\": {\"id\": 2, \"name\": \"Bob\", \"role\": \"user\"},\n}\n\nPRODUCTS = [\n    {\"id\": 1, \"name\": \"Notebook\", \"category\": \"stationery\", \"price\": 5.5},\n    {\"id\": 2, \"name\": \"Pen\", \"category\": \"stationery\", \"price\": 1.25},\n    {\"id\": 3, \"name\": \"Mug\", \"category\": \"home\", \"price\": 8.0},\n]\n```",
+          "elapsed": 101.48614001274109,
+          "usage": {
+            "prompt_tokens": 694,
+            "completion_tokens": 1927,
+            "total_tokens": 2621
+          },
+          "model": "openai/gpt-oss-20b:free",
+          "attempts": 1
+        }
+      }
+    ]
+  },
+  {
+    "app": "flask_session",
+    "mode": "staged",
+    "cycles": 1,
+    "initial_pass": false,
+    "final_pass": false,
+    "history": [
+      {
+        "cycle": 1,
+        "files": [
+          "app.py",
+          "repository.py",
+          "routes.py",
+          "services.py"
+        ],
+        "evaluation": {
+          "visible": false,
+          "hidden": false,
+          "pass": false,
+          "failure_type": "behavioral",
+          "output": "\n=================================== ERRORS ====================================\n_______ ERROR collecting benchmark/tests/visible/flask_session_test.py ________\nImportError while importing test module 'C:\\Users\\Dr. AR\\web_migration_full_benchmark_v4\\benchmark\\tests\\visible\\flask_session_test.py'.\nHint: make sure your test modules/packages have valid Python names.\nTraceback:\nC:\\Python314\\Lib\\importlib\\__init__.py:88: in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nbenchmark\\tests\\visible\\flask_session_test.py:1: in <module>\n    from common import load_client\nE   ModuleNotFoundError: No module named 'common'\n=========================== short test summary info ===========================\nERROR benchmark/tests/visible/flask_session_test.py\n!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!\n1 error in 0.22s\n\n=================================== ERRORS ====================================\n_______ ERROR collecting benchmark/tests/hidden/flask_session_hidden.py _______\nImportError while importing test module 'C:\\Users\\Dr. AR\\web_migration_full_benchmark_v4\\benchmark\\tests\\hidden\\flask_session_hidden.py'.\nHint: make sure your test modules/packages have valid Python names.\nTraceback:\nC:\\Python314\\Lib\\importlib\\__init__.py:88: in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nbenchmark\\tests\\hidden\\flask_session_hidden.py:1: in <module>\n    from common import load_client\nE   ModuleNotFoundError: No module named 'common'\n=========================== short test summary info ===========================\nERROR benchmark/tests/hidden/flask_session_hidden.py\n!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!\n1 error in 0.20s\n"
+        },
+        "llm": {
+          "text": "=== FILE: app.py ===\n```python\nfrom flask import Flask\nfrom routes import api_bp\n\ndef create_app() -> Flask:\n    \"\"\"\n    Factory function to create and configure the Flask application.\n    \"\"\"\n    app = Flask(__name__)\n    # Preserve the legacy secret key for session handling\n    app.secret_key = 'legacy-secret'\n\n    # Register the API blueprint\n    app.register_blueprint(api_bp)\n\n    return app\n\n# Allow running the app directly for development/testing\nif __name__ == \"__main__\":\n    app = create_app()\n    app.run(host=\"127.0.0.1\", port=5060)\n```\n\n=== FILE: routes.py ===\n```python\nfrom flask import Blueprint, request, jsonify, session, redirect\nfrom services import (\n    get_user_by_id,\n    get_products,\n    login_user,\n    get_current_user,\n    is_admin,\n)\n\napi_bp = Blueprint(\"api\", __name__)\n\n# Health check\n@api_bp.get(\"/health\")\ndef health():\n    return jsonify({\"status\": \"ok\"})\n\n# User retrieval\n@api_bp.get(\"/users/<uid>\")\ndef users(uid):\n    user = get_user_by_id(uid)\n    if user is None:\n        return jsonify({\"error\": \"user_not_found\"}), 404\n    return jsonify(user)\n\n# Product listing with optional filtering\n@api_bp.get(\"/products\")\ndef products():\n    q = request.args.get(\"q\", \"\").lower().strip()\n    c = request.args.get(\"category\")\n    items = get_products(q, c)\n    return jsonify({\"count\": len(items), \"items\": items})\n\n# Login endpoint\n@api_bp.post(\"/login\")\ndef login():\n    data = request.get_json(silent=True) or {}\n    user = login_user(data.get(\"user_id\"))\n    if user is None:\n        return jsonify({\"error\": \"invalid_credentials\"}), 401\n    session[\"user_id\"] = user[\"id\"]\n    return jsonify({\"message\": \"logged_in\", \"user\": user})\n\n# Current user info\n@api_bp.get(\"/me\")\ndef me():\n    user = get_current_user()\n    if user is None:\n        return jsonify({\"error\": \"not_authenticated\"}), 401\n    return jsonify(user)\n\n# Admin-only endpoint\n@api_bp.get(\"/admin\")\ndef admin():\n    user = get_current_user()\n    if user is None:\n        return jsonify({\"error\": \"not_authenticated\"}), 401\n    if not is_admin(user):\n        return jsonify({\"error\": \"forbidden\"}), 403\n    return jsonify({\"message\": \"admin_ok\"})\n\n# Legacy redirect\n@api_bp.get(\"/old-home\")\ndef old_home():\n    return redirect(\"/health\", 302)\n```\n\n=== FILE: services.py ===\n```python\nfrom typing import Dict, List, Optional\nfrom repository import USERS, PRODUCTS\n\ndef get_user_by_id(uid: str) -> Optional[Dict]:\n    \"\"\"Retrieve a user by string ID.\"\"\"\n    return USERS.get(uid)\n\ndef get_products(q: str = \"\", c: Optional[str] = None) -> List[Dict]:\n    \"\"\"\n    Return a list of products filtered by optional name query `q`\n    and category `c`. Matching is case-insensitive for the name.\n    \"\"\"\n    items = PRODUCTS\n    if q:\n        items = [p for p in items if q in p[\"name\"].lower()]\n    if c:\n        items = [p for p in items if p[\"category\"] == c]\n    return items\n\ndef login_user(user_id: Optional[int]) -> Optional[Dict]:\n    \"\"\"\n    Validate the provided user_id against the repository.\n    Return the user dict if valid, otherwise None.\n    \"\"\"\n    if user_id is None:\n        return None\n    # Convert to string key for lookup\n    return USERS.get(str(user_id))\n\ndef get_current_user() -> Optional[Dict]:\n    \"\"\"\n    Retrieve the currently authenticated user from the session.\n    \"\"\"\n    from flask import session\n    uid = session.get(\"user_id\")\n    if uid is None:\n        return None\n    return USERS.get(str(uid))\n\ndef is_admin(user: Dict) -> bool:\n    \"\"\"Check if the user has an admin role.\"\"\"\n    return user.get(\"role\") == \"admin\"\n```\n\n=== FILE: repository.py ===\n```python\n# In-memory data store mimicking the legacy application's data structures\n\nUSERS = {\n    \"1\": {\"id\": 1, \"name\": \"Alice\", \"role\": \"admin\"},\n    \"2\": {\"id\": 2, \"name\": \"Bob\", \"role\": \"user\"},\n}\n\nPRODUCTS = [\n    {\"id\": 1, \"name\": \"Notebook\", \"category\": \"stationery\", \"price\": 5.5},\n    {\"id\": 2, \"name\": \"Pen\", \"category\": \"stationery\", \"price\": 1.25},\n    {\"id\": 3, \"name\": \"Mug\", \"category\": \"home\", \"price\": 8.0},\n]\n```",
+          "elapsed": 79.04215812683105,
+          "usage": {
+            "prompt_tokens": 753,
+            "completion_tokens": 1251,
+            "total_tokens": 2004
+          },
+          "model": "openai/gpt-oss-20b:free",
+          "attempts": 2
+        }
+      }
+    ]
+  },
+  {
+    "app": "flask_session",
+    "mode": "closed_loop",
+    "cycles": 3,
+    "initial_pass": false,
+    "final_pass": false,
+    "history": [
+      {
+        "cycle": 1,
+        "files": [
+          "app.py",
+          "repository.py",
+          "routes.py",
+          "services.py"
+        ],
+        "evaluation": {
+          "visible": false,
+          "hidden": false,
+          "pass": false,
+          "failure_type": "behavioral",
+          "output": "\n=================================== ERRORS ====================================\n_______ ERROR collecting benchmark/tests/visible/flask_session_test.py ________\nImportError while importing test module 'C:\\Users\\Dr. AR\\web_migration_full_benchmark_v4\\benchmark\\tests\\visible\\flask_session_test.py'.\nHint: make sure your test modules/packages have valid Python names.\nTraceback:\nC:\\Python314\\Lib\\importlib\\__init__.py:88: in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nbenchmark\\tests\\visible\\flask_session_test.py:1: in <module>\n    from common import load_client\nE   ModuleNotFoundError: No module named 'common'\n=========================== short test summary info ===========================\nERROR benchmark/tests/visible/flask_session_test.py\n!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!\n1 error in 0.21s\n\n=================================== ERRORS ====================================\n_______ ERROR collecting benchmark/tests/hidden/flask_session_hidden.py _______\nImportError while importing test module 'C:\\Users\\Dr. AR\\web_migration_full_benchmark_v4\\benchmark\\tests\\hidden\\flask_session_hidden.py'.\nHint: make sure your test modules/packages have valid Python names.\nTraceback:\nC:\\Python314\\Lib\\importlib\\__init__.py:88: in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nbenchmark\\tests\\hidden\\flask_session_hidden.py:1: in <module>\n    from common import load_client\nE   ModuleNotFoundError: No module named 'common'\n=========================== short test summary info ===========================\nERROR benchmark/tests/hidden/flask_session_hidden.py\n!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!\n1 error in 0.18s\n"
+        },
+        "llm": {
+          "text": "=== FILE: app.py ===\n```python\nfrom flask import Flask\nfrom routes import bp as main_bp\n\ndef create_app() -> Flask:\n    app = Flask(__name__)\n    app.secret_key = 'legacy-secret'\n    app.register_blueprint(main_bp)\n    return app\n\napp = create_app()\n```\n\n=== FILE: routes.py ===\n```python\nfrom flask import Blueprint, request, jsonify, session, redirect\nfrom services import (\n    get_user_by_id,\n    get_products,\n    authenticate_user,\n    get_current_user,\n    is_admin_user,\n)\n\nbp = Blueprint('main', __name__)\n\n@bp.get('/health')\ndef health():\n    return jsonify({'status': 'ok'})\n\n@bp.get('/users/<uid>')\ndef users(uid):\n    user = get_user_by_id(uid)\n    if user is None:\n        return jsonify({'error': 'user_not_found'}), 404\n    return jsonify(user)\n\n@bp.get('/products')\ndef products():\n    q = request.args.get('q', '').lower().strip()\n    category = request.args.get('category')\n    items = get_products(q, category)\n    return jsonify({'count': len(items), 'items': items})\n\n@bp.post('/login')\ndef login():\n    data = request.get_json(silent=True) or {}\n    user_id = str(data.get('user_id', ''))\n    user = authenticate_user(user_id)\n    if user is None:\n        return jsonify({'error': 'invalid_credentials'}), 401\n    session['user_id'] = user['id']\n    return jsonify({'message': 'logged_in', 'user': user})\n\n@bp.get('/me')\ndef me():\n    user = get_current_user()\n    if user is None:\n        return jsonify({'error': 'not_authenticated'}), 401\n    return jsonify(user)\n\n@bp.get('/admin')\ndef admin():\n    user = get_current_user()\n    if user is None:\n        return jsonify({'error': 'not_authenticated'}), 401\n    if not is_admin_user(user):\n        return jsonify({'error': 'forbidden'}), 403\n    return jsonify({'message': 'admin_ok'})\n\n@bp.get('/old-home')\ndef old_home():\n    return redirect('/health', 302)\n```\n\n=== FILE: services.py ===\n```python\nfrom flask import session\nfrom repository import USERS, PRODUCTS\n\ndef get_user_by_id(uid: str):\n    \"\"\"Retrieve a user dict by string ID.\"\"\"\n    return USERS.get(uid)\n\ndef get_products(q: str, category: str):\n    \"\"\"Return products filtered by name query and category.\"\"\"\n    xs = PRODUCTS\n    if q:\n        xs = [x for x in xs if q in x['name'].lower()]\n    if category:\n        xs = [x for x in xs if x['category'] == category]\n    return xs\n\ndef authenticate_user(user_id: str):\n    \"\"\"Authenticate a user by ID; return user dict or None.\"\"\"\n    return USERS.get(user_id)\n\ndef get_current_user():\n    \"\"\"Return the currently logged‑in user dict or None.\"\"\"\n    uid = session.get('user_id')\n    if uid is None:\n        return None\n    return USERS.get(str(uid))\n\ndef is_admin_user(user):\n    \"\"\"Check if the given user dict has admin role.\"\"\"\n    return user.get('role') == 'admin'\n```\n\n=== FILE: repository.py ===\n```python\nUSERS = {\n    '1': {'id': 1, 'name': 'Alice', 'role': 'admin'},\n    '2': {'id': 2, 'name': 'Bob', 'role': 'user'},\n}\n\nPRODUCTS = [\n    {'id': 1, 'name': 'Notebook', 'category': 'stationery', 'price': 5.5},\n    {'id': 2, 'name': 'Pen', 'category': 'stationery', 'price': 1.25},\n    {'id': 3, 'name': 'Mug', 'category': 'home', 'price': 8.0},\n]\n```",
+          "elapsed": 81.88612365722656,
+          "usage": {
+            "prompt_tokens": 1652,
+            "completion_tokens": 2274,
+            "total_tokens": 3926
+          },
+          "model": "openai/gpt-oss-20b:free",
+          "attempts": 1
+        }
+      },
+      {
+        "cycle": 2,
+        "files": [
+          "common.py"
+        ],
+        "evaluation": {
+          "visible": false,
+          "hidden": false,
+          "pass": false,
+          "failure_type": "invalid_artifact",
+          "output": "Missing required app.py."
+        },
+        "llm": {
+          "text": "=== FILE: common.py ===\n```python\n\"\"\"\nUtility module for tests to obtain a Flask test client.\n\"\"\"\n\nfrom app import app as _app\n\n# Ensure the app is in testing mode\n_app.testing = True\n_app.config[\"TESTING\"] = True\n\ndef load_client():\n    \"\"\"\n    Return a Flask test client for the application.\n\n    The client can be used in tests to simulate HTTP requests.\n    \"\"\"\n    return _app.test_client()\n```",
+          "elapsed": 31.83921718597412,
+          "usage": {
+            "prompt_tokens": 1961,
+            "completion_tokens": 658,
+            "total_tokens": 2619
+          },
+          "model": "openai/gpt-oss-20b:free",
+          "attempts": 1
+        }
+      },
+      {
+        "cycle": 3,
+        "files": [
+          "app.py",
+          "repository.py",
+          "routes.py",
+          "services.py"
+        ],
+        "evaluation": {
+          "visible": false,
+          "hidden": false,
+          "pass": false,
+          "failure_type": "behavioral",
+          "output": "\n=================================== ERRORS ====================================\n_______ ERROR collecting benchmark/tests/visible/flask_session_test.py ________\nImportError while importing test module 'C:\\Users\\Dr. AR\\web_migration_full_benchmark_v4\\benchmark\\tests\\visible\\flask_session_test.py'.\nHint: make sure your test modules/packages have valid Python names.\nTraceback:\nC:\\Python314\\Lib\\importlib\\__init__.py:88: in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nbenchmark\\tests\\visible\\flask_session_test.py:1: in <module>\n    from common import load_client\nE   ModuleNotFoundError: No module named 'common'\n=========================== short test summary info ===========================\nERROR benchmark/tests/visible/flask_session_test.py\n!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!\n1 error in 0.17s\n\n=================================== ERRORS ====================================\n_______ ERROR collecting benchmark/tests/hidden/flask_session_hidden.py _______\nImportError while importing test module 'C:\\Users\\Dr. AR\\web_migration_full_benchmark_v4\\benchmark\\tests\\hidden\\flask_session_hidden.py'.\nHint: make sure your test modules/packages have valid Python names.\nTraceback:\nC:\\Python314\\Lib\\importlib\\__init__.py:88: in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nbenchmark\\tests\\hidden\\flask_session_hidden.py:1: in <module>\n    from common import load_client\nE   ModuleNotFoundError: No module named 'common'\n=========================== short test summary info ===========================\nERROR benchmark/tests/hidden/flask_session_hidden.py\n!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!\n1 error in 0.16s\n"
+        },
+        "llm": {
+          "text": "=== FILE: app.py ===\n```python\nfrom flask import Flask\nfrom routes import api_bp\nfrom repository import init_data\n\ndef create_app() -> Flask:\n    \"\"\"\n    Factory function to create and configure the Flask application.\n    \"\"\"\n    app = Flask(__name__)\n    # Preserve the legacy secret key for session handling\n    app.secret_key = \"legacy-secret\"\n\n    # Initialize in‑memory data structures\n    init_data(app)\n\n    # Register the API blueprint\n    app.register_blueprint(api_bp)\n\n    return app\n\n# Expose a module‑level app instance for importers that expect it\napp = create_app()\n```\n\n=== FILE: routes.py ===\n```python\nfrom flask import Blueprint, request, jsonify, session, redirect\nfrom services import get_user, get_products\n\napi_bp = Blueprint(\"api\", __name__)\n\n@api_bp.get(\"/health\")\ndef health():\n    return jsonify({\"status\": \"ok\"})\n\n\n@api_bp.get(\"/users/<uid>\")\ndef users(uid):\n    user = get_user(uid)\n    if user:\n        return jsonify(user)\n    return jsonify({\"error\": \"user_not_found\"}), 404\n\n\n@api_bp.get(\"/products\")\ndef products():\n    q = request.args.get(\"q\", \"\")\n    c = request.args.get(\"category\")\n    items = get_products(q, c)\n    return jsonify({\"count\": len(items), \"items\": items})\n\n\n@api_bp.post(\"/login\")\ndef login():\n    data = request.get_json(silent=True) or {}\n    uid = str(data.get(\"user_id\", \"\"))\n    user = get_user(uid)\n    if not user:\n        return jsonify({\"error\": \"invalid_credentials\"}), 401\n    session[\"user_id\"] = user[\"id\"]\n    return jsonify({\"message\": \"logged_in\", \"user\": user})\n\n\n@api_bp.get(\"/me\")\ndef me():\n    uid = session.get(\"user_id\")\n    if not uid:\n        return jsonify({\"error\": \"not_authenticated\"}), 401\n    user = get_user(uid)\n    if not user:\n        return jsonify({\"error\": \"not_authenticated\"}), 401\n    return jsonify(user)\n\n\n@api_bp.get(\"/admin\")\ndef admin():\n    uid = session.get(\"user_id\")\n    if not uid:\n        return jsonify({\"error\": \"not_authenticated\"}), 401\n    user = get_user(uid)\n    if not user or user.get(\"role\") != \"admin\":\n        return jsonify({\"error\": \"forbidden\"}), 403\n    return jsonify({\"message\": \"admin_ok\"})\n\n\n@api_bp.get(\"/old-home\")\ndef old_home():\n    return redirect(\"/health\", 302)\n```\n\n=== FILE: services.py ===\n```python\nfrom repository import USERS, PRODUCTS\n\ndef get_user(uid: str):\n    \"\"\"\n    Retrieve a user dictionary by string ID.\n    \"\"\"\n    return USERS.get(str(uid))\n\n\ndef get_products(q: str = \"\", category: str | None = None):\n    \"\"\"\n    Return a filtered list of product dictionaries.\n    \"\"\"\n    xs = PRODUCTS\n    if q:\n        q = q.lower().strip()\n        xs = [x for x in xs if q in x[\"name\"].lower()]\n    if category:\n        xs = [x for x in xs if x[\"category\"] == category]\n    return xs\n```\n\n=== FILE: repository.py ===\n```python\n\"\"\"\nIn‑memory data storage for users and products.\n\"\"\"\n\nUSERS = {}\nPRODUCTS = []\n\ndef init_data(app):\n    \"\"\"\n    Populate the USERS and PRODUCTS dictionaries/lists.\n    This function is called by the application factory.\n    \"\"\"\n    global USERS, PRODUCTS\n    USERS = {\n        \"1\": {\"id\": 1, \"name\": \"Alice\", \"role\": \"admin\"},\n        \"2\": {\"id\": 2, \"name\": \"Bob\", \"role\": \"user\"},\n    }\n    PRODUCTS = [\n        {\"id\": 1, \"name\": \"Notebook\", \"category\": \"stationery\", \"price\": 5.5},\n        {\"id\": 2, \"name\": \"Pen\", \"category\": \"stationery\", \"price\": 1.25},\n        {\"id\": 3, \"name\": \"Mug\", \"category\": \"home\", \"price\": 8.0},\n    ]\n```",
+          "elapsed": 180.10855960845947,
+          "usage": {
+            "prompt_tokens": 824,
+            "completion_tokens": 2141,
+            "total_tokens": 2965
+          },
+          "model": "openai/gpt-oss-20b:free",
+          "attempts": 1
+        }
+      }
+    ]
+  },
+  {
+    "app": "express_catalog",
+    "mode": "direct",
+    "cycles": 1,
+    "initial_pass": false,
+    "final_pass": false,
+    "history": [
+      {
+        "cycle": 1,
+        "files": [
+          "app.py",
+          "repository.py",
+          "routes.py",
+          "services.py"
+        ],
+        "evaluation": {
+          "visible": false,
+          "hidden": false,
+          "pass": false,
+          "failure_type": "behavioral",
+          "output": "\n=================================== ERRORS ====================================\n______ ERROR collecting benchmark/tests/visible/express_catalog_test.py _______\nImportError while importing test module 'C:\\Users\\Dr. AR\\web_migration_full_benchmark_v4\\benchmark\\tests\\visible\\express_catalog_test.py'.\nHint: make sure your test modules/packages have valid Python names.\nTraceback:\nC:\\Python314\\Lib\\importlib\\__init__.py:88: in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nbenchmark\\tests\\visible\\express_catalog_test.py:1: in <module>\n    from common import load_client\nE   ModuleNotFoundError: No module named 'common'\n=========================== short test summary info ===========================\nERROR benchmark/tests/visible/express_catalog_test.py\n!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!\n1 error in 0.23s\n\n=================================== ERRORS ====================================\n______ ERROR collecting benchmark/tests/hidden/express_catalog_hidden.py ______\nImportError while importing test module 'C:\\Users\\Dr. AR\\web_migration_full_benchmark_v4\\benchmark\\tests\\hidden\\express_catalog_hidden.py'.\nHint: make sure your test modules/packages have valid Python names.\nTraceback:\nC:\\Python314\\Lib\\importlib\\__init__.py:88: in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nbenchmark\\tests\\hidden\\express_catalog_hidden.py:1: in <module>\n    from common import load_client\nE   ModuleNotFoundError: No module named 'common'\n=========================== short test summary info ===========================\nERROR benchmark/tests/hidden/express_catalog_hidden.py\n!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!\n1 error in 0.24s\n"
+        },
+        "llm": {
+          "text": "=== FILE: app.py ===\n```python\nfrom flask import Flask\nfrom routes import api_bp\n\ndef create_app() -> Flask:\n    \"\"\"\n    Factory function to create and configure the Flask application.\n    \"\"\"\n    app = Flask(__name__)\n    app.register_blueprint(api_bp)\n    return app\n\n# Expose a module-level app instance for convenience.\napp = create_app()\n```\n\n=== FILE: routes.py ===\n```python\nfrom flask import Blueprint, request, jsonify, redirect, url_for\nfrom services import ProductService\n\napi_bp = Blueprint('api', __name__)\n\n# Instantiate the service once; it holds an in-memory repository.\nservice = ProductService()\n\n@api_bp.route('/health', methods=['GET'])\ndef health():\n    \"\"\"\n    Health check endpoint.\n    \"\"\"\n    return jsonify({'status': 'ok'})\n\n\n@api_bp.route('/products', methods=['GET'])\ndef get_products():\n    \"\"\"\n    Retrieve products with optional filtering by name (case-insensitive)\n    and category.\n    \"\"\"\n    q = request.args.get('q')\n    category = request.args.get('category')\n\n    products = service.get_all_products()\n\n    if q:\n        q_lower = q.lower()\n        products = [p for p in products if q_lower in p['name'].lower()]\n\n    if category:\n        products = [p for p in products if p['category'] == category]\n\n    return jsonify({'count': len(products), 'items': products})\n\n\n@api_bp.route('/products/<int:product_id>', methods=['GET'])\ndef get_product(product_id):\n    \"\"\"\n    Retrieve a single product by ID.\n    \"\"\"\n    product = service.get_product_by_id(product_id)\n    if product:\n        return jsonify(product)\n    return jsonify({'error': 'product_not_found'}), 404\n\n\n@api_bp.route('/echo', methods=['POST'])\ndef echo():\n    \"\"\"\n    Echo back the received JSON payload.\n    \"\"\"\n    data = request.get_json(silent=True) or {}\n    return jsonify({'received': data})\n\n\n@api_bp.route('/old-home', methods=['GET'])\ndef old_home():\n    \"\"\"\n    Redirect to the health endpoint with a 302 status code.\n    \"\"\"\n    return redirect(url_for('api.health'), code=302)\n```\n\n=== FILE: services.py ===\n```python\nfrom repository import ProductRepository\n\nclass ProductService:\n    \"\"\"\n    Service layer that interacts with the repository.\n    \"\"\"\n    def __init__(self):\n        self.repo = ProductRepository()\n\n    def get_all_products(self):\n        \"\"\"\n        Return a list of all products.\n        \"\"\"\n        return self.repo.get_all()\n\n    def get_product_by_id(self, product_id: int):\n        \"\"\"\n        Return a single product by ID or None if not found.\n        \"\"\"\n        return self.repo.get_by_id(product_id)\n```\n\n=== FILE: repository.py ===\n```python\nclass ProductRepository:\n    \"\"\"\n    In-memory repository for product data.\n    \"\"\"\n    def __init__(self):\n        self._products = [\n            {'id': 1, 'name': 'Notebook', 'category': 'stationery', 'price': 5.5},\n            {'id': 2, 'name': 'Pen', 'category': 'stationery', 'price': 1.25},\n            {'id': 3, 'name': 'Mug', 'category': 'home', 'price': 8},\n        ]\n\n    def get_all(self):\n        \"\"\"\n        Return a shallow copy of all products.\n        \"\"\"\n        return list(self._products)\n\n    def get_by_id(self, product_id: int):\n        \"\"\"\n        Return a product matching the given ID or None.\n        \"\"\"\n        for product in self._products:\n            if product['id'] == product_id:\n                return product\n        return None\n```",
+          "elapsed": 52.91984844207764,
+          "usage": {
+            "prompt_tokens": 478,
+            "completion_tokens": 2189,
+            "total_tokens": 2667
+          },
+          "model": "openai/gpt-oss-20b:free",
+          "attempts": 1
+        }
+      }
+    ]
+  },
+  {
+    "app": "express_catalog",
+    "mode": "staged",
+    "cycles": 1,
+    "initial_pass": false,
+    "final_pass": false,
+    "history": [
+      {
+        "cycle": 1,
+        "files": [
+          "app.py",
+          "repository.py",
+          "routes.py",
+          "services.py"
+        ],
+        "evaluation": {
+          "visible": false,
+          "hidden": false,
+          "pass": false,
+          "failure_type": "behavioral",
+          "output": "\n=================================== ERRORS ====================================\n______ ERROR collecting benchmark/tests/visible/express_catalog_test.py _______\nImportError while importing test module 'C:\\Users\\Dr. AR\\web_migration_full_benchmark_v4\\benchmark\\tests\\visible\\express_catalog_test.py'.\nHint: make sure your test modules/packages have valid Python names.\nTraceback:\nC:\\Python314\\Lib\\importlib\\__init__.py:88: in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nbenchmark\\tests\\visible\\express_catalog_test.py:1: in <module>\n    from common import load_client\nE   ModuleNotFoundError: No module named 'common'\n=========================== short test summary info ===========================\nERROR benchmark/tests/visible/express_catalog_test.py\n!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!\n1 error in 0.17s\n\n=================================== ERRORS ====================================\n______ ERROR collecting benchmark/tests/hidden/express_catalog_hidden.py ______\nImportError while importing test module 'C:\\Users\\Dr. AR\\web_migration_full_benchmark_v4\\benchmark\\tests\\hidden\\express_catalog_hidden.py'.\nHint: make sure your test modules/packages have valid Python names.\nTraceback:\nC:\\Python314\\Lib\\importlib\\__init__.py:88: in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nbenchmark\\tests\\hidden\\express_catalog_hidden.py:1: in <module>\n    from common import load_client\nE   ModuleNotFoundError: No module named 'common'\n=========================== short test summary info ===========================\nERROR benchmark/tests/hidden/express_catalog_hidden.py\n!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!\n1 error in 0.18s\n"
+        },
+        "llm": {
+          "text": "=== FILE: app.py ===\n```python\nfrom flask import Flask\nfrom routes import api_bp\n\ndef create_app() -> Flask:\n    \"\"\"Create and configure the Flask application.\"\"\"\n    app = Flask(__name__)\n    app.register_blueprint(api_bp)\n    return app\n\n# Expose a module‑level app instance for importability.\napp = create_app()\n```\n\n=== FILE: routes.py ===\n```python\nfrom flask import Blueprint, request, jsonify, redirect\nfrom services import get_products, get_product_by_id\n\napi_bp = Blueprint('api', __name__)\n\n@api_bp.route('/health', methods=['GET'])\ndef health():\n    \"\"\"Health check endpoint.\"\"\"\n    return jsonify(status='ok'), 200\n\n@api_bp.route('/products', methods=['GET'])\ndef products():\n    \"\"\"List products with optional filtering.\"\"\"\n    q = request.args.get('q')\n    category = request.args.get('category')\n    items = get_products(q, category)\n    return jsonify(count=len(items), items=items), 200\n\n@api_bp.route('/products/<int:id>', methods=['GET'])\ndef product_detail(id):\n    \"\"\"Retrieve a single product by ID.\"\"\"\n    product = get_product_by_id(id)\n    if product:\n        return jsonify(product), 200\n    return jsonify(error='product_not_found'), 404\n\n@api_bp.route('/echo', methods=['POST'])\ndef echo():\n    \"\"\"Echo back the received JSON body.\"\"\"\n    data = request.get_json(silent=True)\n    if data is None:\n        data = {}\n    return jsonify(received=data), 200\n\n@api_bp.route('/old-home', methods=['GET'])\ndef old_home():\n    \"\"\"Redirect old home to health endpoint.\"\"\"\n    return redirect('/health', code=302)\n```\n\n=== FILE: services.py ===\n```python\nfrom repository import products\n\ndef get_products(q: str | None = None, category: str | None = None):\n    \"\"\"Return products filtered by optional query and category.\"\"\"\n    result = products\n    if q:\n        q_lower = q.lower()\n        result = [p for p in result if q_lower in p['name'].lower()]\n    if category:\n        result = [p for p in result if p['category'] == category]\n    return result\n\ndef get_product_by_id(product_id: int):\n    \"\"\"Return a single product by its numeric ID or None.\"\"\"\n    for p in products:\n        if p['id'] == product_id:\n            return p\n    return None\n```\n\n=== FILE: repository.py ===\n```python\n# In‑memory static product data\nproducts = [\n    {'id': 1, 'name': 'Notebook', 'category': 'stationery', 'price': 5.5},\n    {'id': 2, 'name': 'Pen', 'category': 'stationery', 'price': 1.25},\n    {'id': 3, 'name': 'Mug', 'category': 'home', 'price': 8},\n]\n```",
+          "elapsed": 52.81531572341919,
+          "usage": {
+            "prompt_tokens": 1318,
+            "completion_tokens": 1394,
+            "total_tokens": 2712
+          },
+          "model": "openai/gpt-oss-20b:free",
+          "attempts": 1
+        }
+      }
+    ]
+  },
+  {
+    "app": "express_catalog",
+    "mode": "closed_loop",
+    "cycles": 3,
+    "initial_pass": false,
+    "final_pass": false,
+    "history": [
+      {
+        "cycle": 1,
+        "files": [
+          "app.py",
+          "repository.py",
+          "routes.py",
+          "services.py"
+        ],
+        "evaluation": {
+          "visible": false,
+          "hidden": false,
+          "pass": false,
+          "failure_type": "behavioral",
+          "output": "\n=================================== ERRORS ====================================\n______ ERROR collecting benchmark/tests/visible/express_catalog_test.py _______\nImportError while importing test module 'C:\\Users\\Dr. AR\\web_migration_full_benchmark_v4\\benchmark\\tests\\visible\\express_catalog_test.py'.\nHint: make sure your test modules/packages have valid Python names.\nTraceback:\nC:\\Python314\\Lib\\importlib\\__init__.py:88: in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nbenchmark\\tests\\visible\\express_catalog_test.py:1: in <module>\n    from common import load_client\nE   ModuleNotFoundError: No module named 'common'\n=========================== short test summary info ===========================\nERROR benchmark/tests/visible/express_catalog_test.py\n!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!\n1 error in 0.24s\n\n=================================== ERRORS ====================================\n______ ERROR collecting benchmark/tests/hidden/express_catalog_hidden.py ______\nImportError while importing test module 'C:\\Users\\Dr. AR\\web_migration_full_benchmark_v4\\benchmark\\tests\\hidden\\express_catalog_hidden.py'.\nHint: make sure your test modules/packages have valid Python names.\nTraceback:\nC:\\Python314\\Lib\\importlib\\__init__.py:88: in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nbenchmark\\tests\\hidden\\express_catalog_hidden.py:1: in <module>\n    from common import load_client\nE   ModuleNotFoundError: No module named 'common'\n=========================== short test summary info ===========================\nERROR benchmark/tests/hidden/express_catalog_hidden.py\n!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!\n1 error in 0.20s\n"
+        },
+        "llm": {
+          "text": "=== FILE: app.py ===\n```python\nfrom flask import Flask\nfrom routes import register_routes\n\ndef create_app() -> Flask:\n    \"\"\"\n    Factory function to create and configure the Flask application.\n    \"\"\"\n    app = Flask(__name__)\n    register_routes(app)\n    return app\n\n# Expose a module-level Flask instance for importers that expect `app`.\napp = create_app()\n```\n\n=== FILE: routes.py ===\n```python\nfrom flask import request, jsonify, redirect\nfrom services import ProductService\n\ndef register_routes(app):\n    \"\"\"\n    Register all application routes on the provided Flask app.\n    \"\"\"\n    product_service = ProductService()\n\n    @app.route(\"/health\", methods=[\"GET\"])\n    def health():\n        return jsonify({\"status\": \"ok\"}), 200\n\n    @app.route(\"/products\", methods=[\"GET\"])\n    def get_products():\n        q = request.args.get(\"q\")\n        category = request.args.get(\"category\")\n        items = product_service.filter_products(q, category)\n        return jsonify({\"count\": len(items), \"items\": items}), 200\n\n    @app.route(\"/products/<int:product_id>\", methods=[\"GET\"])\n    def get_product(product_id):\n        product = product_service.get_product_by_id(product_id)\n        if product:\n            return jsonify(product), 200\n        return jsonify({\"error\": \"product_not_found\"}), 404\n\n    @app.route(\"/echo\", methods=[\"POST\"])\n    def echo():\n        body = request.get_json(silent=True)\n        if body is None:\n            body = {}\n        return jsonify({\"received\": body}), 200\n\n    @app.route(\"/old-home\", methods=[\"GET\"])\n    def old_home():\n        return redirect(\"/health\", code=302)\n```\n\n=== FILE: services.py ===\n```python\nfrom repository import ProductRepository\n\nclass ProductService:\n    \"\"\"\n    Business logic layer for product operations.\n    \"\"\"\n    def __init__(self):\n        self._repo = ProductRepository()\n\n    def filter_products(self, q: str | None = None, category: str | None = None):\n        \"\"\"\n        Return a list of products filtered by optional query and category.\n        Filtering order: first by `q`, then by `category`.\n        \"\"\"\n        products = self._repo.get_all()\n\n        if q:\n            q_lower = q.lower()\n            products = [p for p in products if q_lower in p[\"name\"].lower()]\n\n        if category:\n            products = [p for p in products if p[\"category\"] == category]\n\n        return products\n\n    def get_product_by_id(self, product_id: int):\n        \"\"\"\n        Retrieve a single product by its numeric ID.\n        \"\"\"\n        return self._repo.get_by_id(product_id)\n```\n\n=== FILE: repository.py ===\n```python\nclass ProductRepository:\n    \"\"\"\n    In-memory data store for products.\n    \"\"\"\n    def __init__(self):\n        self._products = [\n            {\"id\": 1, \"name\": \"Notebook\", \"category\": \"stationery\", \"price\": 5.5},\n            {\"id\": 2, \"name\": \"Pen\", \"category\": \"stationery\", \"price\": 1.25},\n            {\"id\": 3, \"name\": \"Mug\", \"category\": \"home\", \"price\": 8},\n        ]\n\n    def get_all(self):\n        \"\"\"\n        Return a shallow copy of all products.\n        \"\"\"\n        return list(self._products)\n\n    def get_by_id(self, product_id: int):\n        \"\"\"\n        Find a product by its ID. Return None if not found.\n        \"\"\"\n        for product in self._products:\n            if product[\"id\"] == product_id:\n                return product\n        return None\n```",
+          "elapsed": 48.094971895217896,
+          "usage": {
+            "prompt_tokens": 1257,
+            "completion_tokens": 1632,
+            "total_tokens": 2889
+          },
+          "model": "openai/gpt-oss-20b:free",
+          "attempts": 1
+        }
+      },
+      {
+        "cycle": 2,
+        "files": [],
+        "evaluation": {
+          "visible": false,
+          "hidden": false,
+          "pass": false,
+          "failure_type": "invalid_artifact",
+          "output": "Missing required app.py."
+        },
+        "llm": {
+          "text": "",
+          "elapsed": 437.7436046600342,
+          "usage": {
+            "prompt_tokens": 1672,
+            "completion_tokens": 5000,
+            "total_tokens": 6672
+          },
+          "model": "openai/gpt-oss-20b:free",
+          "attempts": 1
+        }
+      },
+      {
+        "cycle": 3,
+        "files": [
+          "app.py",
+          "repository.py",
+          "routes.py",
+          "services.py"
+        ],
+        "evaluation": {
+          "visible": false,
+          "hidden": false,
+          "pass": false,
+          "failure_type": "behavioral",
+          "output": "\n=================================== ERRORS ====================================\n______ ERROR collecting benchmark/tests/visible/express_catalog_test.py _______\nImportError while importing test module 'C:\\Users\\Dr. AR\\web_migration_full_benchmark_v4\\benchmark\\tests\\visible\\express_catalog_test.py'.\nHint: make sure your test modules/packages have valid Python names.\nTraceback:\nC:\\Python314\\Lib\\importlib\\__init__.py:88: in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nbenchmark\\tests\\visible\\express_catalog_test.py:1: in <module>\n    from common import load_client\nE   ModuleNotFoundError: No module named 'common'\n=========================== short test summary info ===========================\nERROR benchmark/tests/visible/express_catalog_test.py\n!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!\n1 error in 0.21s\n\n=================================== ERRORS ====================================\n______ ERROR collecting benchmark/tests/hidden/express_catalog_hidden.py ______\nImportError while importing test module 'C:\\Users\\Dr. AR\\web_migration_full_benchmark_v4\\benchmark\\tests\\hidden\\express_catalog_hidden.py'.\nHint: make sure your test modules/packages have valid Python names.\nTraceback:\nC:\\Python314\\Lib\\importlib\\__init__.py:88: in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nbenchmark\\tests\\hidden\\express_catalog_hidden.py:1: in <module>\n    from common import load_client\nE   ModuleNotFoundError: No module named 'common'\n=========================== short test summary info ===========================\nERROR benchmark/tests/hidden/express_catalog_hidden.py\n!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!\n1 error in 0.21s\n"
+        },
+        "llm": {
+          "text": "=== FILE: app.py ===\n```python\nfrom flask import Flask\nfrom .routes import register_routes\n\ndef create_app() -> Flask:\n    \"\"\"\n    Factory function to create and configure the Flask application.\n    \"\"\"\n    app = Flask(__name__)\n    register_routes(app)\n    return app\n\n# Expose a module-level Flask instance for convenience.\napp = create_app()\n```\n\n=== FILE: routes.py ===\n```python\nfrom flask import request, jsonify, redirect, url_for\nfrom typing import List\nfrom .services import ProductService\nfrom .repository import ProductRepository\n\ndef register_routes(app):\n    \"\"\"\n    Register all application routes on the provided Flask app instance.\n    \"\"\"\n    repo = ProductRepository()\n    service = ProductService(repo)\n\n    @app.route('/health', methods=['GET'])\n    def health():\n        \"\"\"\n        Health check endpoint.\n        \"\"\"\n        return jsonify({'status': 'ok'})\n\n    @app.route('/products', methods=['GET'])\n    def get_products():\n        \"\"\"\n        Retrieve a list of products, optionally filtered by name or category.\n        Query parameters:\n            - q: substring to search in product names (case-insensitive)\n            - category: exact category match\n        \"\"\"\n        name_query = request.args.get('q')\n        category = request.args.get('category')\n        products: List = service.list_products(name_query=name_query, category=category)\n        return jsonify({\n            'count': len(products),\n            'items': [p.__dict__ for p in products]\n        })\n\n    @app.route('/products/<int:product_id>', methods=['GET'])\n    def get_product(product_id: int):\n        \"\"\"\n        Retrieve a single product by its ID.\n        \"\"\"\n        product = service.get_product(product_id)\n        if product:\n            return jsonify(product.__dict__)\n        return jsonify({'error': 'product_not_found'}), 404\n\n    @app.route('/echo', methods=['POST'])\n    def echo():\n        \"\"\"\n        Echo back the JSON payload received in the request body.\n        \"\"\"\n        data = request.get_json(silent=True) or {}\n        return jsonify({'received': data})\n\n    @app.route('/old-home', methods=['GET'])\n    def old_home():\n        \"\"\"\n        Redirect from the legacy '/old-home' path to the health endpoint.\n        \"\"\"\n        return redirect(url_for('health'), code=302)\n```\n\n=== FILE: services.py ===\n```python\nfrom typing import List, Optional\nfrom .repository import ProductRepository, Product\n\nclass ProductService:\n    \"\"\"\n    Service layer encapsulating business logic for product operations.\n    \"\"\"\n    def __init__(self, repository: ProductRepository) -> None:\n        self._repo = repository\n\n    def list_products(self, name_query: Optional[str] = None, category: Optional[str] = None) -> List[Product]:\n        \"\"\"\n        Retrieve products, optionally filtering by name substring and/or category.\n        \"\"\"\n        products = self._repo.get_all()\n\n        if name_query:\n            lower_query = name_query.lower()\n            products = [p for p in products if lower_query in p.name.lower()]\n\n        if category:\n            products = [p for p in products if p.category == category]\n\n        return products\n\n    def get_product(self, product_id: int) -> Optional[Product]:\n        \"\"\"\n        Retrieve a single product by ID.\n        \"\"\"\n        return self._repo.get_by_id(product_id)\n```\n\n=== FILE: repository.py ===\n```python\nfrom dataclasses import dataclass\nfrom typing import List, Optional\n\n@dataclass\nclass Product:\n    id: int\n    name: str\n    category: str\n    price: float\n\nclass ProductRepository:\n    \"\"\"\n    In-memory repository for product data.\n    \"\"\"\n    def __init__(self) -> None:\n        self._products: List[Product] = [\n            Product(id=1, name='Notebook', category='stationery', price=5.5),\n            Product(id=2, name='Pen', category='stationery', price=1.25),\n            Product(id=3, name='Mug', category='home', price=8.0),\n        ]\n\n    def get_all(self) -> List[Product]:\n        \"\"\"\n        Return a copy of all products.\n        \"\"\"\n        return list(self._products)\n\n    def get_by_id(self, product_id: int) -> Optional[Product]:\n        \"\"\"\n        Find a product by its ID.\n        \"\"\"\n        return next((p for p in self._products if p.id == product_id), None)\n```",
+          "elapsed": 128.06576085090637,
+          "usage": {
+            "prompt_tokens": 514,
+            "completion_tokens": 2544,
+            "total_tokens": 3058
+          },
+          "model": "openai/gpt-oss-20b:free",
+          "attempts": 1
+        }
+      }
+    ]
+  },
+  {
+    "app": "fastapi_orders",
+    "mode": "direct",
+    "cycles": 1,
+    "initial_pass": false,
+    "final_pass": false,
+    "history": [
+      {
+        "cycle": 1,
+        "files": [
+          "app.py",
+          "repository.py",
+          "routes.py",
+          "services.py"
+        ],
+        "evaluation": {
+          "visible": false,
+          "hidden": false,
+          "pass": false,
+          "failure_type": "behavioral",
+          "output": "\n=================================== ERRORS ====================================\n_______ ERROR collecting benchmark/tests/visible/fastapi_orders_test.py _______\nImportError while importing test module 'C:\\Users\\Dr. AR\\web_migration_full_benchmark_v4\\benchmark\\tests\\visible\\fastapi_orders_test.py'.\nHint: make sure your test modules/packages have valid Python names.\nTraceback:\nC:\\Python314\\Lib\\importlib\\__init__.py:88: in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nbenchmark\\tests\\visible\\fastapi_orders_test.py:1: in <module>\n    from common import load_client\nE   ModuleNotFoundError: No module named 'common'\n=========================== short test summary info ===========================\nERROR benchmark/tests/visible/fastapi_orders_test.py\n!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!\n1 error in 0.22s\n\n=================================== ERRORS ====================================\n______ ERROR collecting benchmark/tests/hidden/fastapi_orders_hidden.py _______\nImportError while importing test module 'C:\\Users\\Dr. AR\\web_migration_full_benchmark_v4\\benchmark\\tests\\hidden\\fastapi_orders_hidden.py'.\nHint: make sure your test modules/packages have valid Python names.\nTraceback:\nC:\\Python314\\Lib\\importlib\\__init__.py:88: in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nbenchmark\\tests\\hidden\\fastapi_orders_hidden.py:1: in <module>\n    from common import load_client\nE   ModuleNotFoundError: No module named 'common'\n=========================== short test summary info ===========================\nERROR benchmark/tests/hidden/fastapi_orders_hidden.py\n!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!\n1 error in 0.20s\n"
+        },
+        "llm": {
+          "text": "=== FILE: app.py ===\n```python\nfrom flask import Flask\nfrom routes import order_bp\n\ndef create_app() -> Flask:\n    \"\"\"Create and configure the Flask application.\"\"\"\n    app = Flask(__name__)\n    app.register_blueprint(order_bp)\n    return app\n\n# Expose a module-level app instance for importability\napp = create_app()\n```\n\n=== FILE: routes.py ===\n```python\nfrom flask import Blueprint, request, jsonify, abort\nfrom pydantic import ValidationError, BaseModel\nfrom services import get_order, create_order, list_orders_service\n\norder_bp = Blueprint('orders', __name__)\n\nclass Order(BaseModel):\n    customer: str\n    status: str\n\n@order_bp.route('/health', methods=['GET'])\ndef health() -> dict:\n    \"\"\"Health check endpoint.\"\"\"\n    return jsonify({'status': 'ok'})\n\n@order_bp.route('/orders/<int:oid>', methods=['GET'])\ndef get_order_route(oid: int) -> dict:\n    \"\"\"Retrieve a specific order by ID.\"\"\"\n    try:\n        order = get_order(oid)\n    except KeyError as exc:\n        abort(404, description=str(exc))\n    return jsonify(order)\n\n@order_bp.route('/orders', methods=['POST'])\ndef create_order_route() -> dict:\n    \"\"\"Create a new order.\"\"\"\n    try:\n        payload = request.get_json(force=True)\n        order = Order.parse_obj(payload)\n    except ValidationError as exc:\n        return jsonify({'detail': exc.errors()}), 422\n    created = create_order(order.dict())\n    return jsonify(created)\n\n@order_bp.route('/orders', methods=['GET'])\ndef list_orders_route() -> dict:\n    \"\"\"List orders, optionally filtered by status.\"\"\"\n    status = request.args.get('status')\n    orders = list_orders_service(status)\n    return jsonify({'count': len(orders), 'items': orders})\n\n@order_bp.errorhandler(404)\ndef handle_not_found(error) -> dict:\n    \"\"\"Return JSON error for 404 responses.\"\"\"\n    return jsonify({'detail': error.description}), 404\n```\n\n=== FILE: services.py ===\n```python\nfrom typing import Optional, List, Dict\nfrom repository import get_order_by_id, add_order, list_orders\n\ndef get_order(oid: int) -> Dict:\n    \"\"\"Retrieve an order by ID, raising KeyError if not found.\"\"\"\n    order = get_order_by_id(oid)\n    if order is None:\n        raise KeyError('order_not_found')\n    return order\n\ndef create_order(order_data: Dict) -> Dict:\n    \"\"\"Create a new order and return it.\"\"\"\n    return add_order(order_data)\n\ndef list_orders_service(status: Optional[str] = None) -> List[Dict]:\n    \"\"\"Return a list of orders, optionally filtered by status.\"\"\"\n    return list_orders(status)\n```\n\n=== FILE: repository.py ===\n```python\nfrom typing import Dict, List, Optional\n\n# In-memory data store\nORDERS: Dict[int, Dict] = {\n    1: {'id': 1, 'customer': 'Alice', 'status': 'paid'},\n    2: {'id': 2, 'customer': 'Bob', 'status': 'pending'},\n}\n\ndef get_order_by_id(oid: int) -> Optional[Dict]:\n    \"\"\"Return the order dict for the given ID, or None if not found.\"\"\"\n    return ORDERS.get(oid)\n\ndef add_order(order_data: Dict) -> Dict:\n    \"\"\"Add a new order to the store and return the created order.\"\"\"\n    new_id = max(ORDERS) + 1 if ORDERS else 1\n    order = {'id': new_id, **order_data}\n    ORDERS[new_id] = order\n    return order\n\ndef list_orders(status: Optional[str] = None) -> List[Dict]:\n    \"\"\"Return all orders, optionally filtered by status.\"\"\"\n    orders = list(ORDERS.values())\n    if status:\n        orders = [o for o in orders if o['status'] == status]\n    return orders\n```",
+          "elapsed": 69.5880560874939,
+          "usage": {
+            "prompt_tokens": 440,
+            "completion_tokens": 3146,
+            "total_tokens": 3586
+          },
+          "model": "openai/gpt-oss-20b:free",
+          "attempts": 1
+        }
+      }
+    ]
+  },
+  {
+    "app": "fastapi_orders",
+    "mode": "staged",
+    "cycles": 1,
+    "initial_pass": false,
+    "final_pass": false,
+    "history": [
+      {
+        "cycle": 1,
+        "files": [
+          "app.py",
+          "repository.py",
+          "routes.py",
+          "services.py"
+        ],
+        "evaluation": {
+          "visible": false,
+          "hidden": false,
+          "pass": false,
+          "failure_type": "behavioral",
+          "output": "\n=================================== ERRORS ====================================\n_______ ERROR collecting benchmark/tests/visible/fastapi_orders_test.py _______\nImportError while importing test module 'C:\\Users\\Dr. AR\\web_migration_full_benchmark_v4\\benchmark\\tests\\visible\\fastapi_orders_test.py'.\nHint: make sure your test modules/packages have valid Python names.\nTraceback:\nC:\\Python314\\Lib\\importlib\\__init__.py:88: in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nbenchmark\\tests\\visible\\fastapi_orders_test.py:1: in <module>\n    from common import load_client\nE   ModuleNotFoundError: No module named 'common'\n=========================== short test summary info ===========================\nERROR benchmark/tests/visible/fastapi_orders_test.py\n!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!\n1 error in 0.24s\n\n=================================== ERRORS ====================================\n______ ERROR collecting benchmark/tests/hidden/fastapi_orders_hidden.py _______\nImportError while importing test module 'C:\\Users\\Dr. AR\\web_migration_full_benchmark_v4\\benchmark\\tests\\hidden\\fastapi_orders_hidden.py'.\nHint: make sure your test modules/packages have valid Python names.\nTraceback:\nC:\\Python314\\Lib\\importlib\\__init__.py:88: in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nbenchmark\\tests\\hidden\\fastapi_orders_hidden.py:1: in <module>\n    from common import load_client\nE   ModuleNotFoundError: No module named 'common'\n=========================== short test summary info ===========================\nERROR benchmark/tests/hidden/fastapi_orders_hidden.py\n!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!\n1 error in 0.22s\n"
+        },
+        "llm": {
+          "text": "=== FILE: app.py ===\n```python\nfrom flask import Flask\n\nfrom routes import api_bp\n\ndef create_app() -> Flask:\n    \"\"\"Create and configure the Flask application.\"\"\"\n    app = Flask(__name__)\n    app.register_blueprint(api_bp)\n    return app\n\n# Expose a module-level app instance for importability\napp = create_app()\n```\n\n=== FILE: routes.py ===\n```python\nfrom flask import Blueprint, request, jsonify\nfrom pydantic import ValidationError\n\nfrom services import (\n    get_order_service,\n    create_order_service,\n    list_orders_service,\n    validate_order,\n)\n\napi_bp = Blueprint(\"api\", __name__)\n\n@api_bp.route(\"/health\", methods=[\"GET\"])\ndef health():\n    \"\"\"Health check endpoint.\"\"\"\n    return jsonify({\"status\": \"ok\"}), 200\n\n\n@api_bp.route(\"/orders/<int:oid>\", methods=[\"GET\"])\ndef get_order(oid: int):\n    \"\"\"Retrieve a single order by ID.\"\"\"\n    try:\n        order = get_order_service(oid)\n    except KeyError:\n        return jsonify({\"detail\": \"order_not_found\"}), 404\n    return jsonify(order), 200\n\n\n@api_bp.route(\"/orders\", methods=[\"POST\"])\ndef create_order():\n    \"\"\"Create a new order.\"\"\"\n    data = request.get_json(silent=True)\n    if data is None:\n        data = {}\n\n    try:\n        order_obj = validate_order(data)\n    except ValidationError as ve:\n        # Convert Pydantic errors to FastAPI-like format\n        errors = []\n        for err in ve.errors():\n            loc = (\"body\",) + err[\"loc\"]\n            errors.append({\"loc\": loc, \"msg\": err[\"msg\"], \"type\": err[\"type\"]})\n        return jsonify({\"detail\": errors}), 422\n\n    new_order = create_order_service(order_obj)\n    return jsonify(new_order), 200\n\n\n@api_bp.route(\"/orders\", methods=[\"GET\"])\ndef list_orders():\n    \"\"\"List orders, optionally filtered by status.\"\"\"\n    status = request.args.get(\"status\")\n    result = list_orders_service(status)\n    return jsonify(result), 200\n```\n\n=== FILE: services.py ===\n```python\nfrom pydantic import BaseModel\nfrom typing import Optional\n\nfrom repository import ORDERS, get_order, create_order, list_orders as repo_list_orders\n\n\nclass Order(BaseModel):\n    customer: str\n    status: str\n\n    class Config:\n        # Ignore any extra fields, matching FastAPI's default behaviour\n        extra = \"ignore\"\n\n\ndef validate_order(data: dict) -> Order:\n    \"\"\"Validate incoming order data using Pydantic.\"\"\"\n    return Order(**data)\n\n\ndef get_order_service(oid: int) -> dict:\n    \"\"\"Retrieve an order by ID.\"\"\"\n    return get_order(oid)\n\n\ndef create_order_service(order: Order) -> dict:\n    \"\"\"Persist a new order.\"\"\"\n    return create_order(order.dict())\n\n\ndef list_orders_service(status: Optional[str] = None) -> dict:\n    \"\"\"Return a list of orders, optionally filtered by status.\"\"\"\n    items = repo_list_orders(status)\n    return {\"count\": len(items), \"items\": items}\n```\n\n=== FILE: repository.py ===\n```python\n# In-memory storage for orders\nORDERS = {\n    1: {\"id\": 1, \"customer\": \"Alice\", \"status\": \"paid\"},\n    2: {\"id\": 2, \"customer\": \"Bob\", \"status\": \"pending\"},\n}\n\n\ndef get_order(oid: int) -> dict:\n    \"\"\"Retrieve an order by ID, raising KeyError if not found.\"\"\"\n    if oid not in ORDERS:\n        raise KeyError\n    return ORDERS[oid]\n\n\ndef create_order(order_data: dict) -> dict:\n    \"\"\"Create a new order with an auto-incremented ID.\"\"\"\n    new_id = max(ORDERS.keys(), default=0) + 1\n    order_dict = {\"id\": new_id, **order_data}\n    ORDERS[new_id] = order_dict\n    return order_dict\n\n\ndef list_orders(status: str | None = None) -> list[dict]:\n    \"\"\"Return all orders, optionally filtered by status.\"\"\"\n    orders = list(ORDERS.values())\n    if status:\n        orders = [o for o in orders if o[\"status\"] == status]\n    return orders\n```",
+          "elapsed": 224.58580899238586,
+          "usage": {
+            "prompt_tokens": 914,
+            "completion_tokens": 3607,
+            "total_tokens": 4521
+          },
+          "model": "openai/gpt-oss-20b:free",
+          "attempts": 1
+        }
+      }
+    ]
+  },
+  {
+    "app": "fastapi_orders",
+    "mode": "closed_loop",
+    "cycles": 3,
+    "initial_pass": false,
+    "final_pass": false,
+    "history": [
+      {
+        "cycle": 1,
+        "files": [
+          "app.py",
+          "repository.py",
+          "routes.py",
+          "services.py"
+        ],
+        "evaluation": {
+          "visible": false,
+          "hidden": false,
+          "pass": false,
+          "failure_type": "behavioral",
+          "output": "\n=================================== ERRORS ====================================\n_______ ERROR collecting benchmark/tests/visible/fastapi_orders_test.py _______\nImportError while importing test module 'C:\\Users\\Dr. AR\\web_migration_full_benchmark_v4\\benchmark\\tests\\visible\\fastapi_orders_test.py'.\nHint: make sure your test modules/packages have valid Python names.\nTraceback:\nC:\\Python314\\Lib\\importlib\\__init__.py:88: in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nbenchmark\\tests\\visible\\fastapi_orders_test.py:1: in <module>\n    from common import load_client\nE   ModuleNotFoundError: No module named 'common'\n=========================== short test summary info ===========================\nERROR benchmark/tests/visible/fastapi_orders_test.py\n!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!\n1 error in 0.21s\n\n=================================== ERRORS ====================================\n______ ERROR collecting benchmark/tests/hidden/fastapi_orders_hidden.py _______\nImportError while importing test module 'C:\\Users\\Dr. AR\\web_migration_full_benchmark_v4\\benchmark\\tests\\hidden\\fastapi_orders_hidden.py'.\nHint: make sure your test modules/packages have valid Python names.\nTraceback:\nC:\\Python314\\Lib\\importlib\\__init__.py:88: in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nbenchmark\\tests\\hidden\\fastapi_orders_hidden.py:1: in <module>\n    from common import load_client\nE   ModuleNotFoundError: No module named 'common'\n=========================== short test summary info ===========================\nERROR benchmark/tests/hidden/fastapi_orders_hidden.py\n!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!\n1 error in 0.21s\n"
+        },
+        "llm": {
+          "text": "=== FILE: app.py ===\n```python\nfrom flask import Flask, jsonify\nfrom routes import orders_bp\n\ndef create_app() -> Flask:\n    app = Flask(__name__)\n    app.register_blueprint(orders_bp)\n\n    @app.errorhandler(404)\n    def not_found(error):\n        description = getattr(error, \"description\", \"Not Found\")\n        return jsonify({\"detail\": description}), 404\n\n    return app\n\napp = create_app()\n```\n\n=== FILE: routes.py ===\n```python\nfrom flask import Blueprint, request, jsonify, abort\nfrom services import get_order_service, create_order_service, list_orders_service\nfrom pydantic import BaseModel\n\nclass Order(BaseModel):\n    customer: str\n    status: str\n\norders_bp = Blueprint(\"orders\", __name__)\n\n@orders_bp.route(\"/health\", methods=[\"GET\"])\ndef health():\n    return jsonify({\"status\": \"ok\"})\n\n@orders_bp.route(\"/orders/<int:oid>\", methods=[\"GET\"])\ndef get_order(oid: int):\n    order = get_order_service(oid)\n    if not order:\n        abort(404, description=\"order_not_found\")\n    return jsonify(order)\n\n@orders_bp.route(\"/orders\", methods=[\"POST\"])\ndef create_order():\n    data = request.get_json()\n    if not data:\n        abort(400, description=\"invalid_request\")\n    try:\n        order = Order(**data)\n    except Exception:\n        abort(400, description=\"invalid_request\")\n    created = create_order_service(order)\n    return jsonify(created)\n\n@orders_bp.route(\"/orders\", methods=[\"GET\"])\ndef list_orders():\n    status = request.args.get(\"status\")\n    items = list_orders_service(status)\n    return jsonify({\"count\": len(items), \"items\": items})\n```\n\n=== FILE: services.py ===\n```python\nfrom repository import get_order_by_id, create_order, list_orders\nfrom pydantic import BaseModel\n\ndef get_order_service(oid: int):\n    return get_order_by_id(oid)\n\ndef create_order_service(order: BaseModel):\n    return create_order(order.model_dump())\n\ndef list_orders_service(status: str | None = None):\n    return list_orders(status)\n```\n\n=== FILE: repository.py ===\n```python\nORDERS = {\n    1: {\"id\": 1, \"customer\": \"Alice\", \"status\": \"paid\"},\n    2: {\"id\": 2, \"customer\": \"Bob\", \"status\": \"pending\"},\n}\n\ndef get_order_by_id(oid: int):\n    return ORDERS.get(oid)\n\ndef create_order(order_data: dict):\n    oid = max(ORDERS) + 1 if ORDERS else 1\n    ORDERS[oid] = {\"id\": oid, **order_data}\n    return ORDERS[oid]\n\ndef list_orders(status: str | None = None):\n    items = list(ORDERS.values())\n    if status:\n        items = [o for o in items if o[\"status\"] == status]\n    return items\n```",
+          "elapsed": 147.91663646697998,
+          "usage": {
+            "prompt_tokens": 446,
+            "completion_tokens": 2874,
+            "total_tokens": 3320
+          },
+          "model": "openai/gpt-oss-20b:free",
+          "attempts": 1
+        }
+      },
+      {
+        "cycle": 2,
+        "files": [
+          "app.py",
+          "common.py",
+          "repository.py",
+          "routes.py",
+          "services.py"
+        ],
+        "evaluation": {
+          "visible": false,
+          "hidden": false,
+          "pass": false,
+          "failure_type": "behavioral",
+          "output": "\n=================================== ERRORS ====================================\n_______ ERROR collecting benchmark/tests/visible/fastapi_orders_test.py _______\nImportError while importing test module 'C:\\Users\\Dr. AR\\web_migration_full_benchmark_v4\\benchmark\\tests\\visible\\fastapi_orders_test.py'.\nHint: make sure your test modules/packages have valid Python names.\nTraceback:\nC:\\Python314\\Lib\\importlib\\__init__.py:88: in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nbenchmark\\tests\\visible\\fastapi_orders_test.py:1: in <module>\n    from common import load_client\nE   ModuleNotFoundError: No module named 'common'\n=========================== short test summary info ===========================\nERROR benchmark/tests/visible/fastapi_orders_test.py\n!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!\n1 error in 0.20s\n\n=================================== ERRORS ====================================\n______ ERROR collecting benchmark/tests/hidden/fastapi_orders_hidden.py _______\nImportError while importing test module 'C:\\Users\\Dr. AR\\web_migration_full_benchmark_v4\\benchmark\\tests\\hidden\\fastapi_orders_hidden.py'.\nHint: make sure your test modules/packages have valid Python names.\nTraceback:\nC:\\Python314\\Lib\\importlib\\__init__.py:88: in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nbenchmark\\tests\\hidden\\fastapi_orders_hidden.py:1: in <module>\n    from common import load_client\nE   ModuleNotFoundError: No module named 'common'\n=========================== short test summary info ===========================\nERROR benchmark/tests/hidden/fastapi_orders_hidden.py\n!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!\n1 error in 0.19s\n"
+        },
+        "llm": {
+          "text": "=== FILE: app.py ===\n```python\nfrom flask import Flask, jsonify\nfrom routes import orders_bp\n\ndef create_app() -> Flask:\n    app = Flask(__name__)\n    app.register_blueprint(orders_bp)\n\n    @app.errorhandler(404)\n    def not_found(error):\n        description = getattr(error, \"description\", \"Not Found\")\n        return jsonify({\"detail\": description}), 404\n\n    return app\n\napp = create_app()\n```\n\n=== FILE: routes.py ===\n```python\nfrom flask import Blueprint, request, jsonify, abort\nfrom services import get_order_service, create_order_service, list_orders_service\nfrom pydantic import BaseModel\n\nclass Order(BaseModel):\n    customer: str\n    status: str\n\norders_bp = Blueprint(\"orders\", __name__)\n\n@orders_bp.route(\"/health\", methods=[\"GET\"])\ndef health():\n    return jsonify({\"status\": \"ok\"})\n\n@orders_bp.route(\"/orders/<int:oid>\", methods=[\"GET\"])\ndef get_order(oid: int):\n    order = get_order_service(oid)\n    if not order:\n        abort(404, description=\"order_not_found\")\n    return jsonify(order)\n\n@orders_bp.route(\"/orders\", methods=[\"POST\"])\ndef create_order():\n    data = request.get_json()\n    if not data:\n        abort(400, description=\"invalid_request\")\n    try:\n        order = Order(**data)\n    except Exception:\n        abort(400, description=\"invalid_request\")\n    created = create_order_service(order)\n    return jsonify(created)\n\n@orders_bp.route(\"/orders\", methods=[\"GET\"])\ndef list_orders():\n    status = request.args.get(\"status\")\n    items = list_orders_service(status)\n    return jsonify({\"count\": len(items), \"items\": items})\n```\n\n=== FILE: services.py ===\n```python\nfrom repository import get_order_by_id, create_order, list_orders\nfrom pydantic import BaseModel\n\ndef get_order_service(oid: int):\n    return get_order_by_id(oid)\n\ndef create_order_service(order: BaseModel):\n    return create_order(order.model_dump())\n\ndef list_orders_service(status: str | None = None):\n    return list_orders(status)\n```\n\n=== FILE: repository.py ===\n```python\nORDERS = {\n    1: {\"id\": 1, \"customer\": \"Alice\", \"status\": \"paid\"},\n    2: {\"id\": 2, \"customer\": \"Bob\", \"status\": \"pending\"},\n}\n\ndef get_order_by_id(oid: int):\n    return ORDERS.get(oid)\n\ndef create_order(order_data: dict):\n    oid = max(ORDERS) + 1 if ORDERS else 1\n    ORDERS[oid] = {\"id\": oid, **order_data}\n    return ORDERS[oid]\n\ndef list_orders(status: str | None = None):\n    items = list(ORDERS.values())\n    if status:\n        items = [o for o in items if o[\"status\"] == status]\n    return items\n```\n\n=== FILE: common.py ===\n```python\nfrom app import app\n\ndef load_client():\n    \"\"\"\n    Return a Flask test client for the application.\n    \"\"\"\n    return app.test_client()\n```",
+          "elapsed": 466.1193120479584,
+          "usage": {
+            "prompt_tokens": 1492,
+            "completion_tokens": 2975,
+            "total_tokens": 4467
+          },
+          "model": "openai/gpt-oss-20b:free",
+          "attempts": 1
+        }
+      },
+      {
+        "cycle": 3,
+        "files": [
+          "app.py",
+          "common.py",
+          "repository.py",
+          "routes.py",
+          "services.py"
+        ],
+        "evaluation": {
+          "visible": false,
+          "hidden": false,
+          "pass": false,
+          "failure_type": "behavioral",
+          "output": "\n=================================== ERRORS ====================================\n_______ ERROR collecting benchmark/tests/visible/fastapi_orders_test.py _______\nImportError while importing test module 'C:\\Users\\Dr. AR\\web_migration_full_benchmark_v4\\benchmark\\tests\\visible\\fastapi_orders_test.py'.\nHint: make sure your test modules/packages have valid Python names.\nTraceback:\nC:\\Python314\\Lib\\importlib\\__init__.py:88: in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nbenchmark\\tests\\visible\\fastapi_orders_test.py:1: in <module>\n    from common import load_client\nE   ModuleNotFoundError: No module named 'common'\n=========================== short test summary info ===========================\nERROR benchmark/tests/visible/fastapi_orders_test.py\n!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!\n1 error in 0.22s\n\n=================================== ERRORS ====================================\n______ ERROR collecting benchmark/tests/hidden/fastapi_orders_hidden.py _______\nImportError while importing test module 'C:\\Users\\Dr. AR\\web_migration_full_benchmark_v4\\benchmark\\tests\\hidden\\fastapi_orders_hidden.py'.\nHint: make sure your test modules/packages have valid Python names.\nTraceback:\nC:\\Python314\\Lib\\importlib\\__init__.py:88: in import_module\n    return _bootstrap._gcd_import(name[level:], package, level)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\nbenchmark\\tests\\hidden\\fastapi_orders_hidden.py:1: in <module>\n    from common import load_client\nE   ModuleNotFoundError: No module named 'common'\n=========================== short test summary info ===========================\nERROR benchmark/tests/hidden/fastapi_orders_hidden.py\n!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!\n1 error in 0.29s\n"
+        },
+        "llm": {
+          "text": "=== FILE: app.py ===\n```python\nfrom flask import Flask, jsonify\nfrom routes import orders_bp\n\ndef create_app() -> Flask:\n    \"\"\"Create and configure the Flask application.\"\"\"\n    app = Flask(__name__)\n    app.register_blueprint(orders_bp)\n\n    @app.errorhandler(404)\n    def not_found(error):\n        description = getattr(error, \"description\", \"Not Found\")\n        return jsonify({\"detail\": description}), 404\n\n    @app.errorhandler(400)\n    def bad_request(error):\n        description = getattr(error, \"description\", \"Bad Request\")\n        return jsonify({\"detail\": description}), 400\n\n    return app\n\n# Expose a module-level app instance for import by tests\napp = create_app()\n```\n\n=== FILE: routes.py ===\n```python\nfrom flask import Blueprint, request, jsonify, abort\nfrom services import get_order_service, create_order_service, list_orders_service\nfrom pydantic import BaseModel\n\nclass Order(BaseModel):\n    customer: str\n    status: str\n\norders_bp = Blueprint(\"orders\", __name__)\n\n@orders_bp.route(\"/health\", methods=[\"GET\"])\ndef health():\n    return jsonify({\"status\": \"ok\"})\n\n@orders_bp.route(\"/orders/<int:oid>\", methods=[\"GET\"])\ndef get_order(oid: int):\n    order = get_order_service(oid)\n    if not order:\n        abort(404, description=\"order_not_found\")\n    return jsonify(order)\n\n@orders_bp.route(\"/orders\", methods=[\"POST\"])\ndef create_order():\n    data = request.get_json(silent=True)\n    if not data:\n        abort(400, description=\"invalid_request\")\n    try:\n        order = Order(**data)\n    except Exception:\n        abort(400, description=\"invalid_request\")\n    created = create_order_service(order)\n    return jsonify(created)\n\n@orders_bp.route(\"/orders\", methods=[\"GET\"])\ndef list_orders():\n    status = request.args.get(\"status\")\n    items = list_orders_service(status)\n    return jsonify({\"count\": len(items), \"items\": items})\n```\n\n=== FILE: services.py ===\n```python\nfrom repository import get_order_by_id, create_order, list_orders\nfrom pydantic import BaseModel\n\ndef get_order_service(oid: int):\n    \"\"\"Retrieve an order by its ID.\"\"\"\n    return get_order_by_id(oid)\n\ndef create_order_service(order: BaseModel):\n    \"\"\"Create a new order from a Pydantic model.\"\"\"\n    return create_order(order.model_dump())\n\ndef list_orders_service(status: str | None = None):\n    \"\"\"List orders, optionally filtering by status.\"\"\"\n    return list_orders(status)\n```\n\n=== FILE: repository.py ===\n```python\nORDERS = {\n    1: {\"id\": 1, \"customer\": \"Alice\", \"status\": \"paid\"},\n    2: {\"id\": 2, \"customer\": \"Bob\", \"status\": \"pending\"},\n}\n\ndef get_order_by_id(oid: int):\n    \"\"\"Return the order dict for the given ID, or None if not found.\"\"\"\n    return ORDERS.get(oid)\n\ndef create_order(order_data: dict):\n    \"\"\"Persist a new order and return the stored dict.\"\"\"\n    oid = max(ORDERS) + 1 if ORDERS else 1\n    ORDERS[oid] = {\"id\": oid, **order_data}\n    return ORDERS[oid]\n\ndef list_orders(status: str | None = None):\n    \"\"\"Return a list of orders, optionally filtered by status.\"\"\"\n    items = list(ORDERS.values())\n    if status:\n        items = [o for o in items if o[\"status\"] == status]\n    return items\n```\n\n=== FILE: common.py ===\n```python\nfrom app import app\n\ndef load_client():\n    \"\"\"\n    Return a Flask test client for the application.\n    \"\"\"\n    return app.test_client()\n```\n",
+          "elapsed": 222.01741647720337,
+          "usage": {
+            "prompt_tokens": 1533,
+            "completion_tokens": 4206,
+            "total_tokens": 5739
+          },
+          "model": "openai/gpt-oss-20b:free",
+          "attempts": 1
+        }
+      }
+    ]
+  }
+]

@@ -1,0 +1,7 @@
+{
+  "experiment": "v3.2_closed_loop_repair",
+  "source": "user-provided terminal result",
+  "llm_requests_made": 1,
+  "repair_evaluation": {"passed": 8, "total": 8, "pass": true},
+  "note": "Model/token metadata should be replaced with the raw JSON result file if available before submission. The 1-request and 8/8 result are directly evidenced by the terminal output recorded during the experiment."
+}
