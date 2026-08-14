@@ -1,0 +1,57 @@
+{
+  "experiment": "v3.2_closed_loop_repair",
+  "model": "openai/gpt-oss-20b:free",
+  "llm_requests": 1,
+  "repair_elapsed_seconds": 60.807851791381836,
+  "usage": {
+    "prompt_tokens": 444,
+    "completion_tokens": 2114,
+    "total_tokens": 2558
+  },
+  "verified_failure_before_repair": {
+    "failure_type": "execution_error",
+    "error": "SyntaxError: unterminated string literal at line 30",
+    "context": "The generated B/closed-loop application failed to import before behavioral tests could execute.",
+    "required_behavior": "Preserve the same 8 behavioral checks used in V3.1."
+  },
+  "repair_evaluation": {
+    "pass": true,
+    "passed": 8,
+    "total": 8,
+    "checks": [
+      {
+        "name": "health",
+        "passed": true
+      },
+      {
+        "name": "initial_items",
+        "passed": true
+      },
+      {
+        "name": "get_item",
+        "passed": true
+      },
+      {
+        "name": "missing_item",
+        "passed": true
+      },
+      {
+        "name": "create_item",
+        "passed": true
+      },
+      {
+        "name": "update_item",
+        "passed": true
+      },
+      {
+        "name": "delete_item",
+        "passed": true
+      },
+      {
+        "name": "deleted_item",
+        "passed": true
+      }
+    ]
+  },
+  "artifact": "B_closed_loop_repaired_attempt_2.py"
+}

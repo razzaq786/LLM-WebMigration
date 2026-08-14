@@ -1,0 +1,168 @@
+{
+  "experiment": "representative_web_migration_v3",
+  "model": "openai/gpt-oss-20b:free",
+  "maximum_llm_requests": 10,
+  "actual_llm_requests": 8,
+  "results": {
+    "A": {
+      "direct": {
+        "calls": 1,
+        "attempts": [
+          {
+            "llm": {
+              "text": "=== FILE: app.py ===\n```python\nfrom flask import Flask, jsonify, request, session, redirect\n\napp = Flask(__name__)\napp.secret_key = \"legacy-secret\"\n\nUSERS = {\n    \"1\": {\"id\": 1, \"name\": \"Alice\", \"role\": \"admin\"},\n    \"2\": {\"id\": 2, \"name\": \"Bob\", \"role\": \"user\"},\n}\n\n@app.get(\"/health\")\ndef health():\n    return jsonify({\"status\": \"ok\"})\n\n@app.post(\"/login\")\ndef login():\n    b = request.get_json(silent=True) or {}\n    u = USERS.get(str(b.get(\"user_id\", \"\")))\n    if not u:\n        return jsonify({\"error\": \"invalid_credentials\"}), 401\n    session[\"user_id\"] = u[\"id\"]\n    return jsonify({\"message\": \"logged_in\", \"user\": u})\n\n@app.get(\"/me\")\ndef me():\n    uid = session.get(\"user_id\")\n    if not uid:\n        return jsonify({\"error\": \"not_authenticated\"}), 401\n    return jsonify(USERS[str(uid)])\n\n@app.get(\"/admin\")\ndef admin():\n    uid = session.get(\"user_id\")\n    if not uid:\n        return jsonify({\"error\": \"not_authenticated\"}), 401\n    if USERS[str(uid)][\"role\"] != \"admin\":\n        return jsonify({\"error\": \"forbidden\"}), 403\n    return jsonify({\"message\": \"admin_ok\"})\n\n@app.get(\"/old-home\")\ndef old_home():\n    return redirect(\"/health\", 302)\n```",
+              "elapsed_seconds": 68.74670338630676,
+              "usage": {
+                "prompt_tokens": 423,
+                "completion_tokens": 1220,
+                "total_tokens": 1643
+              }
+            },
+            "evaluation": {
+              "pass": false,
+              "passed": 0,
+              "total": 8,
+              "harness_error": "No app.py block",
+              "checks": []
+            }
+          }
+        ]
+      },
+      "staged": {
+        "calls": 2,
+        "attempts": [
+          {
+            "plan": {
+              "text": "**Legacy Flask App Summary**\n\n| Endpoint | Method | Behavior | Notes |\n|----------|--------|----------|-------|\n| `/health` | GET | Returns `{\"status\":\"ok\"}` | Simple health\u2011check |\n| `/login` | POST | Accepts JSON `{\"user_id\":<id>}` \u2192 sets `session[\"user_id\"]` if user exists | No password, no CSRF, no rate\u2011limit |\n| `/me` | GET | Returns current user JSON if logged in | Uses `session` |\n| `/admin` | GET | Requires logged\u2011in admin \u2192 `{\"message\":\"admin_ok\"}` | Role check via `USERS` |\n| `/old-home` | GET | Redirects to `/health` (302) | Legacy redirect |\n\n**Key Issues**\n\n1. **Hard\u2011coded secret key & user data** \u2013 insecure, no persistence.  \n2. **No authentication/authorization framework** \u2013 manual checks, no token support.  \n3. **No input validation / error handling** \u2013 silent JSON parsing, no status codes for bad payloads.  \n4. **No testing or CI** \u2013 risk of regressions.  \n5. **Single\u2011file monolith** \u2013 hard to scale or maintain.  \n6. **No logging / monitoring** \u2013 only health endpoint.  \n7. **No rate\u2011limiting or CSRF protection** \u2013 vulnerable to brute\u2011force or cross\u2011site attacks.  \n\n---\n\n## Migration Plan (Behavior\u2011Preserving)\n\n> **Goal:** Refactor into a clean, testable, and secure Flask 2.x application while keeping the public API and responses identical.\n\n| Step | Action | Deliverable | Time |\n|------|--------|-------------|------|\n| **1. Environment & Dependencies** | \u2022 Create a new virtualenv (`python3 -m venv venv`).<br>\u2022 Pin Flask \u22652.3, `itsdangerous`, `werkzeug`, `pytest`, `pytest-flask`. | `requirements.txt` with exact versions. | 1\u202fh |\n| **2. App Factory & Config** | \u2022 Move code into `app/__init__.py` with `create_app()` factory.<br>\u2022 Load `SECRET_KEY` from env (`FLASK_SECRET_KEY`).<br>\u2022 Separate config classes (`DevelopmentConfig`, `TestingConfig`). | `app/__init__.py`, `config.py`. | 1\u202fh |\n| **3. Blueprints** | \u2022 Split routes into `auth`, `admin`, `public` blueprints.<br>\u2022 Register them in factory. | `app/auth/__init__.py`, `app/admin/__init__.py`, `app/public/__init__.py`. | 1\u202fh |\n| **4. User Model & Persistence** | \u2022 Replace in\u2011memory `USERS` with a tiny SQLite DB via SQLAlchemy or a simple JSON file.<br>\u2022 Keep same schema (`id`, `name`, `role`). | `app/models.py` (or `db.py`). | 2\u202fh |\n| **5. Authentication Layer** | \u2022 Implement a minimal session\u2011based auth helper (`login_user`, `current_user`, `logout_user`).<br>\u2022 Keep same session key (`user_id`). | `app/auth/utils.py`. | 1\u202fh |\n| **6. Input Validation** | \u2022 Use `marshmallow` or `pydantic` schemas for `/login` payload.<br>\u2022 Return `400` with JSON error if payload invalid. | `app/auth/schemas.py`. | 1\u202fh |\n| **7. Authorization Decorator** | \u2022 Create `@admin_required` decorator that checks `current_user.role`.<br>\u2022 Preserve 403 response. | `app/auth/decorators.py`. | 1\u202fh |\n| **8. Error Handlers** | \u2022 Global `@app.errorhandler` for `401`, `403`, `400` to return JSON `{error: \"...\"} `. | `app/errors.py`. | 1\u202fh |\n| **9. Logging & Monitoring** | \u2022 Add basic `logging` configuration.<br>\u2022 Keep `/health` unchanged. | `app/logger.py`. | 30\u202fmin |\n| **10. Tests** | \u2022 Write `pytest` tests that hit each endpoint and assert status codes & JSON.<br>\u2022 Use `pytest-flask` fixture. | `tests/test_app.py`. | 3\u202fh |\n| **11. CI Setup** | \u2022 Add GitHub Actions workflow (`.github/workflows/ci.yml`) that runs tests on push. | CI config. | 1\u202fh |\n| **12. Deployment Script** | \u2022 Provide a simple `docker-compose.yml` with Flask + SQLite. | `docker-compose.yml`. | 1\u202fh |\n| **13. Documentation** | \u2022 Update README with API spec, env vars, and test instructions. | README.md. | 1\u202fh |\n\n**Total Estimated Time:** ~15\u202fhours (including buffer for debugging).\n\n---\n\n### Key Preservation Points\n\n| Feature | Legacy | Migration |\n|---------|--------|-----------|\n| **Health** | `/health` \u2192 `{\"status\":\"ok\"}` | Same route, same JSON |\n| **Login** | POST JSON \u2192 sets `session[\"user_id\"]` | Same payload, same session key, same 401 error |\n| **Me** | GET \u2192 user JSON or 401 | Same logic, same 401 |\n| **Admin** | GET \u2192 403 if not admin | Same decorator, same 403 |\n| **Redirect** | `/old-home` \u2192 302 to `/health` | Same redirect behavior |\n| **Error Codes** | 400/401/403/200 | Same status codes and JSON error keys |\n\n---\n\n### Quick Checklist Before Release\n\n1. **Run all tests** (`pytest`).  \n2. **Verify session persistence** in test client.  \n3. **Check redirect status** (`302`) and `Location` header.  \n4. **Confirm error messages** match legacy (`\"invalid_credentials\"`, `\"not_authenticated\"`, `\"forbidden\"`).  \n5. **Deploy locally** (`docker-compose up`) and manually test endpoints.  \n6. **Push to CI** and ensure all jobs pass.  \n\nOnce the above passes, the legacy app can be safely replaced with the refactored version without breaking existing clients.",
+              "elapsed_seconds": 49.48740005493164,
+              "usage": {
+                "prompt_tokens": 345,
+                "completion_tokens": 1448,
+                "total_tokens": 1793
+              }
+            },
+            "implementation": {
+              "text": "=== FILE: app.py ===\n```python\nfrom flask import Flask, jsonify, request, session, redirect\n\napp = Flask(__name__)\napp.secret_key = \"legacy-secret\"\n\nUSERS = {\n    \"1\": {\"id\": 1, \"name\": \"Alice\", \"role\": \"admin\"},\n    \"2\": {\"id\": 2, \"name\": \"Bob\", \"role\": \"user\"},\n}\n\n@app.get(\"/health\")\ndef health():\n    return jsonify({\"status\": \"ok\"})\n\n@app.post(\"/login\")\ndef login():\n    data = request.get_json(silent=True) or {}\n    user_id = str(data.get(\"user_id\", \"\"))\n    user = USERS.get(user_id)\n    if not user:\n        return jsonify({\"error\": \"invalid_credentials\"}), 401\n    session[\"user_id\"] = user[\"id\"]\n    return jsonify({\"message\": \"logged_in\", \"user\": user})\n\n@app.get(\"/me\")\ndef me():\n    uid = session.get(\"user_id\")\n    if not uid:\n        return jsonify({\"error\": \"not_authenticated\"}), 401\n    user = USERS.get(str(uid))\n    if not user:\n        return jsonify({\"error\": \"not_authenticated\"}), 401\n    return jsonify(user)\n\n@app.get(\"/admin\")\ndef admin():\n    uid = session.get(\"user_id\")\n    if not uid:\n        return jsonify({\"error\": \"not_authenticated\"}), 401\n    user = USERS.get(str(uid))\n    if not user:\n        return jsonify({\"error\": \"not_authenticated\"}), 401\n    if user.get(\"role\") != \"admin\":\n        return jsonify({\"error\": \"forbidden\"}), 403\n    return jsonify({\"message\": \"admin_ok\"})\n\n@app.get(\"/old-home\")\ndef old_home():\n    return redirect(\"/health\", 302)\n```",
+              "elapsed_seconds": 65.14269733428955,
+              "usage": {
+                "prompt_tokens": 1750,
+                "completion_tokens": 2126,
+                "total_tokens": 3876
+              }
+            },
+            "evaluation": {
+              "pass": false,
+              "passed": 0,
+              "total": 8,
+              "harness_error": "No app.py block",
+              "checks": []
+            }
+          }
+        ]
+      },
+      "closed_loop": {
+        "calls": 1,
+        "attempts": [
+          {
+            "llm": {
+              "text": "=== FILE: app.py ===\n```python\nfrom flask import Flask, jsonify, request, session, redirect\n\napp = Flask(__name__)\napp.secret_key = \"legacy-secret\"\n\nUSERS = {\n    \"1\": {\"id\": 1, \"name\": \"Alice\", \"role\": \"admin\"},\n    \"2\": {\"id\": 2, \"name\": \"Bob\", \"role\": \"user\"},\n}\n\n@app.get(\"/health\")\ndef health():\n    return jsonify({\"status\": \"ok\"})\n\n@app.post(\"/login\")\ndef login():\n    b = request.get_json(silent=True) or {}\n    u = USERS.get(str(b.get(\"user_id\", \"\")))\n    if not u:\n        return jsonify({\"error\": \"invalid_credentials\"}), 401\n    session[\"user_id\"] = u[\"id\"]\n    return jsonify({\"message\": \"logged_in\", \"user\": u})\n\n@app.get(\"/me\")\ndef me():\n    uid = session.get(\"user_id\")\n    if not uid:\n        return jsonify({\"error\": \"not_authenticated\"}), 401\n    return jsonify(USERS[str(uid)])\n\n@app.get(\"/admin\")\ndef admin():\n    uid = session.get(\"user_id\")\n    if not uid:\n        return jsonify({\"error\": \"not_authenticated\"}), 401\n    if USERS[str(uid)][\"role\"] != \"admin\":\n        return jsonify({\"error\": \"forbidden\"}), 403\n    return jsonify({\"message\": \"admin_ok\"})\n\n@app.get(\"/old-home\")\ndef old_home():\n    return redirect(\"/health\", 302)\n```",
+              "elapsed_seconds": 65.46805500984192,
+              "usage": {
+                "prompt_tokens": 432,
+                "completion_tokens": 1405,
+                "total_tokens": 1837
+              }
+            },
+            "evaluation": {
+              "pass": false,
+              "passed": 0,
+              "total": 8,
+              "harness_error": "No app.py block",
+              "checks": []
+            }
+          }
+        ]
+      }
+    },
+    "B": {
+      "direct": {
+        "calls": 1,
+        "attempts": [
+          {
+            "llm": {
+              "text": "=== FILE: app.py ===\n```python\nfrom flask import Flask, jsonify, request\n\napp = Flask(__name__)\n\n# In-memory data store\nITEMS = [\n    {\"id\": 1, \"name\": \"Alpha\", \"qty\": 2},\n    {\"id\": 2, \"name\": \"Beta\", \"qty\": 5},\n]\n\n# Health check endpoint\n@app.get(\"/health\")\ndef health():\n    return jsonify({\"status\": \"ok\"})\n\n# Retrieve all items\n@app.get(\"/items\")\ndef items():\n    return jsonify({\"items\": ITEMS})\n\n# Retrieve a single item by ID\n@app.get(\"/items/<int:item_id>\")\ndef get_item(item_id):\n    for item in ITEMS:\n        if item[\"id\"] == item_id:\n            return jsonify(item)\n    return jsonify({\"error\": \"not_found\"}), 404\n\n# Create a new item\n@app.post(\"/items\")\ndef create():\n    data = request.get_json(silent=True) or {}\n    if \"name\" not in data or \"qty\" not in data:\n        return jsonify({\"error\": \"invalid\"}), 400\n\n    new_id = max([item[\"id\"] for item in ITEMS] + [0]) + 1\n    new_item = {\"id\": new_id, \"name\": data[\"name\"], \"qty\": data[\"qty\"]}\n    ITEMS.append(new_item)\n    return jsonify(new_item), 201\n\n# Update an existing item\n@app.put(\"/items/<int:item_id>\")\ndef update(item_id):\n    data = request.get_json(silent=True) or {}\n    for item in ITEMS:\n        if item[\"id\"] == item_id:\n            item[\"name\"] = data.get(\"name\", item[\"name\"])\n            item[\"qty\"] = data.get(\"qty\", item[\"qty\"])\n            return jsonify(item)\n    return jsonify({\"error\": \"not_found\"}), 404\n\n# Delete an item\n@app.delete(\"/items/<int:item_id>\")\ndef delete(item_id):\n    for index, item in enumerate(ITEMS):\n        if item[\"id\"] == item_id:\n            ITEMS.pop(index)\n            return \"\", 204\n    return jsonify({\"error\": \"not_found\"}), 404\n```",
+              "elapsed_seconds": 54.50398111343384,
+              "usage": {
+                "prompt_tokens": 506,
+                "completion_tokens": 878,
+                "total_tokens": 1384
+              }
+            },
+            "evaluation": {
+              "pass": false,
+              "passed": 0,
+              "total": 8,
+              "harness_error": "No app.py block",
+              "checks": []
+            }
+          }
+        ]
+      },
+      "staged": {
+        "calls": 2,
+        "attempts": [
+          {
+            "plan": {
+              "text": "**Behavior\u2011Preserving Migration Plan for the Legacy Flask App**\n\n| Phase | Goal | Key Actions | Deliverables |\n|-------|------|-------------|--------------|\n| **1. Baseline Capture** | Verify current behavior and surface bugs. | \u2022 Run the app locally (`flask run`).<br>\u2022 Execute all endpoints with sample payloads (GET, POST, PUT, DELETE).<br>\u2022 Record expected responses, status codes, and edge\u2011case handling (e.g., missing fields, non\u2011existent IDs). | \u2022 Postman/Insomnia collection (or curl scripts).<br>\u2022 Automated test suite (pytest + requests) that reproduces the current behavior. |\n| **2. Project Skeleton** | Create a clean, maintainable project structure. | \u2022 Initialize a new repo (Git).<br>\u2022 Add `pyproject.toml` (Poetry/Pipenv) or `requirements.txt`.<br>\u2022 Create `app/` package with `__init__.py`, `main.py`, `config.py`, `models.py`, `routes/` folder. | \u2022 Directory tree ready for refactor. |\n| **3. Configuration & Environment** | Externalize settings. | \u2022 Move hard\u2011coded `ITEMS` into a JSON file or in\u2011memory store with a loader in `config.py`.<br>\u2022 Add environment variables for debug mode, port, etc. | \u2022 `config.py` with `load_items()` helper. |\n| **4. Refactor Routes** | Preserve API contract while improving readability. | \u2022 Convert each route into a function inside `app/routes/items.py`.<br>\u2022 Use Flask\u2019s `Blueprint` (`items_bp`).<br>\u2022 Keep the same URL patterns and HTTP methods. | \u2022 `items_bp` registered in `app/main.py`. |\n| **5. Data Layer** | Decouple data access. | \u2022 Create `app/models/item.py` with a simple `Item` class and CRUD helpers that operate on the in\u2011memory list.<br>\u2022 Replace inline loops with these helpers. | \u2022 `ItemRepository` with `get_all()`, `get(id)`, `create(data)`, `update(id, data)`, `delete(id)`. |\n| **6. Validation & Error Handling** | Keep current error responses. | \u2022 Add a `validate_item_payload()` helper that returns `(bool, error_msg)`.<br>\u2022 Use Flask\u2019s `abort()` with custom JSON error handlers. | \u2022 Centralized error handling (`app/errors.py`). |\n| **7. Testing** | Ensure behavior is unchanged. | \u2022 Run the baseline test suite against the refactored code.<br>\u2022 Add coverage checks. | \u2022 100\u202f% test coverage of existing endpoints. |\n| **8. Deployment Prep** | Make the app production\u2011ready. | \u2022 Add `gunicorn` entry point (`wsgi.py`).<br>\u2022 Create Dockerfile (optional).<br>\u2022 Add CI pipeline (GitHub Actions) that runs tests on every push. | \u2022 Docker image or simple `gunicorn` command. |\n| **9. Documentation** | Preserve API contract for consumers. | \u2022 Generate OpenAPI spec via Flask\u2011RESTX or manually write Swagger docs.<br>\u2022 Include example requests/responses. | \u2022 `docs/` folder with Swagger UI. |\n| **10. Roll\u2011out** | Deploy without breaking existing clients. | \u2022 Deploy to a staging environment.<br>\u2022 Run smoke tests against staging.<br>\u2022 Switch traffic to new deployment once verified. | \u2022 Live, behavior\u2011identical API. |\n\n**Key Preservation Points**\n\n- **Endpoints & URLs**: `/health`, `/items`, `/items/<int:item_id>` with same verbs.\n- **Response Structure**: JSON payloads (`{\"status\":\"ok\"}`, `{\"items\": [...]}`, `{\"error\":\"not_found\"}` etc.) unchanged.\n- **Status Codes**: 200, 201, 204, 400, 404 exactly as before.\n- **Data Mutations**: In\u2011memory list behavior (no persistence) remains; IDs auto\u2011increment from max existing ID.\n- **Error Messages**: `\"invalid\"`, `\"not_found\"` strings preserved.\n\nBy following this plan, the application will be modernized (blueprints, modular code, tests, CI) while guaranteeing that all external consumers experience the same API behavior.",
+              "elapsed_seconds": 31.21021556854248,
+              "usage": {
+                "prompt_tokens": 428,
+                "completion_tokens": 1044,
+                "total_tokens": 1472
+              }
+            },
+            "implementation": {
+              "text": "=== FILE: app.py ===\n```python\nfrom flask import Flask, jsonify, request\n\napp = Flask(__name__)\n\n# In-memory data store\nITEMS = [\n    {\"id\": 1, \"name\": \"Alpha\", \"qty\": 2},\n    {\"id\": 2, \"name\": \"Beta\", \"qty\": 5},\n]\n\n@app.get(\"/health\")\ndef health():\n    return jsonify({\"status\": \"ok\"})\n\n@app.get(\"/items\")\ndef items():\n    return jsonify({\"items\": ITEMS})\n\n@app.get(\"/items/<int:item_id>\")\ndef get_item(item_id):\n    for x in ITEMS:\n        if x[\"id\"] == item_id:\n            return jsonify(x)\n    return jsonify({\"error\": \"not_found\"}), 404\n\n@app.post(\"/items\")\ndef create():\n    b = request.get_json(silent=True) or {}\n    if \"name\" not in b or \"qty\" not in b:\n        return jsonify({\"error\": \"invalid\"}), 400\n    new_id = max([x[\"id\"] for x in ITEMS] + [0]) + 1\n    new = {\"id\": new_id, \"name\": b[\"name\"], \"qty\": b[\"qty\"]}\n    ITEMS.append(new)\n    return jsonify(new), 201\n\n@app.put(\"/items/<int:item_id>\")\ndef update(item_id):\n    b = request.get_json(silent=True) or {}\n    for x in ITEMS:\n        if x[\"id\"] == item_id:\n            x[\"name\"] = b.get(\"name\", x[\"name\"])\n            x[\"qty\"] = b.get(\"qty\", x[\"qty\"])\n            return jsonify(x)\n    return jsonify({\"error\": \"not_found\"}), 404\n\n@app.delete(\"/items/<int:item_id>\")\ndef delete(item_id):\n    for i, x in enumerate(ITEMS):\n        if x[\"id\"] == item_id:\n            ITEMS.pop(i)\n            return \"\", 204\n    return jsonify({\"error\": \"not_found\"}), 404\n```",
+              "elapsed_seconds": 151.64435458183289,
+              "usage": {
+                "prompt_tokens": 1420,
+                "completion_tokens": 4377,
+                "total_tokens": 5797
+              }
+            },
+            "evaluation": {
+              "pass": false,
+              "passed": 0,
+              "total": 8,
+              "harness_error": "No app.py block",
+              "checks": []
+            }
+          }
+        ]
+      },
+      "closed_loop": {
+        "calls": 1,
+        "attempts": [
+          {
+            "llm": {
+              "text": "=== FILE: app.py ===\n```python\nfrom flask import Flask, jsonify, request\n\napp = Flask(__name__)\n\nITEMS = [\n    {\"id\": 1, \"name\": \"Alpha\", \"qty\": 2},\n    {\"id\": 2, \"name\": \"Beta\", \"qty\": 5}\n]\n\n@app.get(\"/health\")\ndef health():\n    return jsonify({\"status\": \"ok\"})\n\n@app.get(\"/items\")\ndef items():\n    return jsonify({\"items\": ITEMS})\n\n@app.get(\"/items/<int:item_id>\")\ndef get_item(item_id):\n    for x in ITEMS:\n        if x[\"id\"] == item_id:\n            return jsonify(x)\n    return jsonify({\"error\": \"not_found\"}), 404\n\n@app.post(\"/items\")\ndef create():\n    b = request.get_json(silent=True) or {}\n    if \"name\" not in b or \"qty\" not in b:\n        return jsonify({\"error\": \"",
+              "elapsed_seconds": 228.36821174621582,
+              "usage": {
+                "prompt_tokens": 515,
+                "completion_tokens": 5000,
+                "total_tokens": 5515
+              }
+            },
+            "evaluation": {
+              "pass": false,
+              "passed": 0,
+              "total": 8,
+              "harness_error": "No app.py block",
+              "checks": []
+            }
+          }
+        ]
+      }
+    }
+  }
+}
