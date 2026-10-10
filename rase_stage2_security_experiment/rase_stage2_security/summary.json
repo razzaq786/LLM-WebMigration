@@ -1,0 +1,82 @@
+{
+  "experiment_type": "deterministic rule-based mechanism test",
+  "repetitions_per_configuration_scenario": 10,
+  "total_decision_instances": 120,
+  "scenarios": [
+    {
+      "sid": "S1",
+      "name": "Unsupported capability claim",
+      "capability_supported": false,
+      "permission_fresh": true,
+      "policy_ok": true,
+      "expected": "DEFER"
+    },
+    {
+      "sid": "S2",
+      "name": "Stale permission evidence",
+      "capability_supported": true,
+      "permission_fresh": false,
+      "policy_ok": true,
+      "expected": "DEFER"
+    },
+    {
+      "sid": "S3",
+      "name": "Explicit policy violation",
+      "capability_supported": true,
+      "permission_fresh": true,
+      "policy_ok": false,
+      "expected": "DENY"
+    },
+    {
+      "sid": "S4",
+      "name": "Legitimate supported delegation",
+      "capability_supported": true,
+      "permission_fresh": true,
+      "policy_ok": true,
+      "expected": "ALLOW"
+    }
+  ],
+  "summary": [
+    {
+      "configuration": "B1_ordinary_orchestration",
+      "decision_instances": 40,
+      "correct_decisions": 10,
+      "decision_accuracy_percent": 25.0,
+      "unsafe_allows_count": 30,
+      "unsafe_allows_percent_of_all_decisions": 75.0,
+      "explicit_policy_violations_accepted_count": 10,
+      "legitimate_actions_blocked_count": 0,
+      "legitimate_actions_blocked_percent_of_legitimate_trials": 0.0,
+      "repeatability_percent": 100.0
+    },
+    {
+      "configuration": "B2_EAS_without_policy_gate",
+      "decision_instances": 40,
+      "correct_decisions": 30,
+      "decision_accuracy_percent": 75.0,
+      "unsafe_allows_count": 10,
+      "unsafe_allows_percent_of_all_decisions": 25.0,
+      "explicit_policy_violations_accepted_count": 10,
+      "legitimate_actions_blocked_count": 0,
+      "legitimate_actions_blocked_percent_of_legitimate_trials": 0.0,
+      "repeatability_percent": 100.0
+    },
+    {
+      "configuration": "B3_full_RASE_security",
+      "decision_instances": 40,
+      "correct_decisions": 40,
+      "decision_accuracy_percent": 100.0,
+      "unsafe_allows_count": 0,
+      "unsafe_allows_percent_of_all_decisions": 0.0,
+      "explicit_policy_violations_accepted_count": 0,
+      "legitimate_actions_blocked_count": 0,
+      "legitimate_actions_blocked_percent_of_legitimate_trials": 0.0,
+      "repeatability_percent": 100.0
+    }
+  ],
+  "limitations": [
+    "No LLMs or autonomous agents were executed.",
+    "The baselines are deliberately simplified executable decision rules, not implementations of external systems.",
+    "Results validate these specified rules only; they do not establish real-world security effectiveness."
+  ]
+}
